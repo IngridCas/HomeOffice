@@ -135,9 +135,13 @@ const buildPath = path.resolve(__dirname, 'client', 'dist');
 app.use(express.static(buildPath));
 
 // Manejar cualquier otra ruta devolviendo el index.html (Para React Router)
-app.get('*', (req, res) => {
-    const indexPath = path.join(buildPath, 'index.html');
-    res.sendFile(indexPath);
+app.get('(.*)', (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'), (err) => {
+        if (err) {
+            console.error("Error enviando index.html:", err);
+            res.status(500).send("No se encontró el archivo index.html. Verifica que la carpeta client/dist exista.");
+        }
+    });
 });
 
 
