@@ -1,8 +1,7 @@
-// client/vite.config.js
 import { defineConfig } from 'vite'
-import react from '@vitejs/react-swc'
+import react from '@vitejs/plugin-react' // <--- Verifica esta línea
 
 export default defineConfig({
   plugins: [react()],
-  base: './', // <--- ESTA ES LA LÍNEA MÁGICA
+  base: './', // Esto es vital para que Azure no de pantalla en blanco
 })
