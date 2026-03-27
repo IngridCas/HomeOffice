@@ -129,7 +129,7 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
 // --- SERVIR FRONTEND (REACT) ---
 
 // Definimos la ruta absoluta a la carpeta build
-const buildPath = path.resolve(__dirname, 'client', 'dist');
+const buildPath = path.join(__dirname, 'client', 'dist');
 
 // Servir archivos estáticos
 app.use(express.static(buildPath));
