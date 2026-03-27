@@ -44,7 +44,7 @@ async function getConnection() {
 app.get('/api/colaboradores', async (req, res) => {
     try {
         const pool = await getConnection();
-        const result = await pool.request().query("SELECT nombre FROM colaboradores WHERE activo = 1 ORDER BY nombre");
+        const result = await pool.request().query("SELECT nombre FROM HomeOffice.colaboradores WHERE activo = 1 ORDER BY nombre");
         res.json(result.recordset.map(r => r.nombre));
     } catch (err) {
         res.status(500).json({ error: "No se pudo obtener la lista de staff", details: err.message });
@@ -55,7 +55,7 @@ app.get('/api/colaboradores', async (req, res) => {
 app.get('/api/asignaciones', async (req, res) => {
     try {
         const pool = await getConnection();
-        const result = await pool.request().query("SELECT usuario, fecha FROM asignaciones");
+        const result = await pool.request().query("SELECT usuario, fecha FROM HomeOffice.asignaciones");
         res.json(result.recordset);
     } catch (err) {
         res.status(500).json({ error: "Error al cargar el calendario", details: err.message });
@@ -73,7 +73,7 @@ app.post('/api/asignar', async (req, res) => {
         const pool = await getConnection();
         
         // Calcular el límite del 50% dinámicamente
-        const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM colaboradores WHERE activo = 1");
+        const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor(totalRes.recordset[0].total * 0.5);
 
         const transaction = new sql.Transaction(pool);
@@ -84,7 +84,7 @@ app.post('/api/asignar', async (req, res) => {
                 // Validar cupo por cada día solicitado
                 const checkRes = await transaction.request()
                     .input('f', sql.Date, fecha)
-                    .query("SELECT COUNT(*) as ocupados FROM asignaciones WHERE fecha = @f");
+                    .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
                 if (checkRes.recordset[0].ocupados >= limite) {
                     throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
@@ -95,7 +95,7 @@ app.post('/api/asignar', async (req, res) => {
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.Date, fecha)
                     .query(`
-                        IF NOT EXISTS (SELECT 1 FROM asignaciones WHERE usuario = @u AND fecha = @f)
+                        IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
                         INSERT INTO asignaciones (usuario, fecha) VALUES (@u, @f)
                     `);
             }
@@ -118,7 +118,7 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
         await pool.request()
             .input('u', sql.NVarChar, usuario)
             .input('f', sql.Date, fecha)
-            .query("DELETE FROM asignaciones WHERE usuario = @u AND fecha = @f");
+            .query("DELETE FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f");
         
         res.json({ success: true });
     } catch (err) {
