@@ -145,9 +145,7 @@ app.get('*', (req, res) => {
     });
 });
 
-// Iniciar servidor
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-    console.log(`>>> Servidor unificado ejecutándose en puerto ${PORT}`);
-    console.log(`>>> Buscando frontend en: ${buildPath}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor listo en puerto ${PORT}`);
 });
