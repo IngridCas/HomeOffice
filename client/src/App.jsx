@@ -6,6 +6,7 @@ import {
 import es from 'date-fns/locale/es';
 import { Trash2, UserPlus, Calendar, Lock, AlertCircle } from 'lucide-react';
 
+
 const App = () => {
   // --- ESTADOS CONECTADOS AL BACKEND ---
   const [staffList, setStaffList] = useState([]); // Ahora viene de SQL
