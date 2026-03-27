@@ -135,14 +135,9 @@ const buildPath = path.resolve(__dirname, 'client', 'dist');
 app.use(express.static(buildPath));
 
 // Manejar cualquier otra ruta devolviendo el index.html (Para React Router)
-app.get('/:splat*', (req, res) => {
+app.get('*', (req, res) => {
     const indexPath = path.join(buildPath, 'index.html');
-    res.sendFile(indexPath, (err) => {
-        if (err) {
-            console.error("Error enviando index.html:", err);
-            res.status(500).send("Error cargando el frontend.");
-        }
-    });
+    res.sendFile(indexPath);
 });
 
 
