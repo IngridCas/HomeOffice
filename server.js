@@ -134,16 +134,16 @@ const buildPath = path.resolve(__dirname, 'client', 'dist');
 // Servir archivos estáticos
 app.use(express.static(buildPath));
 
-// Manejar cualquier otra ruta devolviendo el index.html (Para React Router)
-app.get('(.*)', (req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'), (err) => {
-        if (err) {
-            console.error("Error enviando index.html:", err);
-            res.status(500).send("No se encontró el archivo index.html. Verifica que la carpeta client/dist exista.");
-        }
-    });
+// 2. Ruta para el Home (Raíz)
+app.get('/', (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
 });
 
+// 3. Ruta de seguridad para CUALQUIER otra página (Sintaxis Express 5 limpia)
+// Usamos un parámetro llamado "any" sin caracteres especiales
+app.get('/:any', (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
+});
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
