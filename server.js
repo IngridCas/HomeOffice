@@ -135,15 +135,16 @@ const buildPath = path.resolve(__dirname, 'client', 'dist');
 app.use(express.static(buildPath));
 
 // Manejar cualquier otra ruta devolviendo el index.html (Para React Router)
-app.get('*', (req, res) => {
+app.get('/:splat*', (req, res) => {
     const indexPath = path.join(buildPath, 'index.html');
     res.sendFile(indexPath, (err) => {
         if (err) {
-            // Si llegas aquí, es que la carpeta 'build' no existe o la ruta está mal
-            res.status(500).send("Error crítico: No se encontró la carpeta 'client/dist'. Verifica que el proceso de compilación (npm run dist) se ejecutó correctamente en Azure.");
+            console.error("Error enviando index.html:", err);
+            res.status(500).send("Error cargando el frontend.");
         }
     });
 });
+
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
