@@ -1,91 +1,120 @@
 const express = require('express');
 const sql = require('mssql');
 const path = require('path');
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
+
+// Middlewares
+app.use(cors());
 app.use(express.json());
 
-// Configuración de SQL Server (usa variables de entorno en Azure)
+// --- CONFIGURACIÓN DE SQL SERVER ---
 const dbConfig = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    server: process.env.DB_SERVER,
+    server: process.env.DB_SERVER, 
     database: process.env.DB_NAME,
     options: {
-        encrypt: true, // Necesario para Azure SQL
-        trustServerCertificate: false
+        encrypt: true, // Obligatorio para Azure SQL
+        trustServerCertificate: false,
+        connectTimeout: 30000 // 30 segundos de timeout para evitar caídas en frío
+    },
+    pool: {
+        max: 10,
+        min: 0,
+        idleTimeoutMillis: 30000
     }
 };
 
-// 1. OBTENER COLABORADORES
+// Función para conectar a la DB
+async function getConnection() {
+    try {
+        return await sql.connect(dbConfig);
+    } catch (err) {
+        console.error("Error de conexión a SQL Server:", err.message);
+        throw err;
+    }
+}
+
+// --- ENDPOINTS DE LA API ---
+
+// 1. Obtener lista de colaboradores
 app.get('/api/colaboradores', async (req, res) => {
     try {
-        let pool = await sql.connect(dbConfig);
-        let result = await pool.request().query("SELECT nombre FROM colaboradores WHERE activo = 1 ORDER BY nombre");
+        const pool = await getConnection();
+        const result = await pool.request().query("SELECT nombre FROM colaboradores WHERE activo = 1 ORDER BY nombre");
         res.json(result.recordset.map(r => r.nombre));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "No se pudo obtener la lista de staff", details: err.message });
     }
 });
 
-// 2. OBTENER ASIGNACIONES EXISTENTES (Para que React las pinte al cargar)
+// 2. Obtener todas las asignaciones (Carga inicial del calendario)
 app.get('/api/asignaciones', async (req, res) => {
     try {
-        let pool = await sql.connect(dbConfig);
-        let result = await pool.request().query("SELECT usuario, fecha FROM asignaciones");
+        const pool = await getConnection();
+        const result = await pool.request().query("SELECT usuario, fecha FROM asignaciones");
         res.json(result.recordset);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error al cargar el calendario", details: err.message });
     }
 });
 
-// 3. GUARDAR ASIGNACIONES (Con validación del 50%)
+// 3. Guardar nuevas asignaciones (Con regla del 50%)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
+    if (!usuario || !fechas || fechas.length === 0) {
+        return res.status(400).json({ error: "Datos incompletos" });
+    }
+
     try {
-        let pool = await sql.connect(dbConfig);
+        const pool = await getConnection();
         
-        // Calcular límite dinámico
-        const totalStaff = await pool.request().query("SELECT COUNT(*) as total FROM colaboradores WHERE activo = 1");
-        const limite = Math.floor(totalStaff.recordset[0].total * 0.5);
+        // Calcular el límite del 50% dinámicamente
+        const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM colaboradores WHERE activo = 1");
+        const limite = Math.floor(totalRes.recordset[0].total * 0.5);
 
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
 
-        for (let fecha of fechas) {
-            // Validar cupo por día en la DB
-            const checkCupo = await transaction.request()
-                .input('f', sql.Date, fecha)
-                .query("SELECT COUNT(*) as ocupados FROM asignaciones WHERE fecha = @f");
-            
-            if (checkCupo.recordset[0].ocupados >= limite) {
-                await transaction.rollback();
-                return res.status(400).json({ error: `Límite del 50% alcanzado para el día ${fecha}` });
+        try {
+            for (let fecha of fechas) {
+                // Validar cupo por cada día solicitado
+                const checkRes = await transaction.request()
+                    .input('f', sql.Date, fecha)
+                    .query("SELECT COUNT(*) as ocupados FROM asignaciones WHERE fecha = @f");
+
+                if (checkRes.recordset[0].ocupados >= limite) {
+                    throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
+                }
+
+                // Insertar si no está ya asignado
+                await transaction.request()
+                    .input('u', sql.NVarChar, usuario)
+                    .input('f', sql.Date, fecha)
+                    .query(`
+                        IF NOT EXISTS (SELECT 1 FROM asignaciones WHERE usuario = @u AND fecha = @f)
+                        INSERT INTO asignaciones (usuario, fecha) VALUES (@u, @f)
+                    `);
             }
-
-            // Insertar si no existe el par usuario-fecha
-            await transaction.request()
-                .input('u', sql.NVarChar, usuario)
-                .input('f', sql.Date, fecha)
-                .query(`
-                    IF NOT EXISTS (SELECT 1 FROM asignaciones WHERE usuario = @u AND fecha = @f)
-                    INSERT INTO asignaciones (usuario, fecha) VALUES (@u, @f)
-                `);
+            await transaction.commit();
+            res.json({ success: true });
+        } catch (error) {
+            await transaction.rollback();
+            res.status(400).json({ error: error.message });
         }
-
-        await transaction.commit();
-        res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error en el servidor de base de datos" });
     }
 });
 
-// 4. ELIMINAR ASIGNACIÓN
+// 4. Eliminar asignación
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
     try {
-        let pool = await sql.connect(dbConfig);
+        const pool = await getConnection();
         await pool.request()
             .input('u', sql.NVarChar, usuario)
             .input('f', sql.Date, fecha)
@@ -93,17 +122,32 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
         
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "No se pudo eliminar el registro" });
     }
 });
 
-// --- SERVIR FRONTEND ---
-// Esta parte sirve los archivos de la carpeta 'client/build' que genera React
-app.use(express.static(path.join(__dirname, 'client/build')));
+// --- SERVIR FRONTEND (REACT) ---
 
+// Definimos la ruta absoluta a la carpeta build
+const buildPath = path.resolve(__dirname, 'client', 'build');
+
+// Servir archivos estáticos
+app.use(express.static(buildPath));
+
+// Manejar cualquier otra ruta devolviendo el index.html (Para React Router)
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+    const indexPath = path.join(buildPath, 'index.html');
+    res.sendFile(indexPath, (err) => {
+        if (err) {
+            // Si llegas aquí, es que la carpeta 'build' no existe o la ruta está mal
+            res.status(500).send("Error crítico: No se encontró la carpeta 'client/build'. Verifica que el proceso de compilación (npm run build) se ejecutó correctamente en Azure.");
+        }
+    });
 });
 
+// Iniciar servidor
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`>>> Servidor unificado ejecutándose en puerto ${PORT}`);
+    console.log(`>>> Buscando frontend en: ${buildPath}`);
+});
