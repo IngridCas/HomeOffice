@@ -129,7 +129,7 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
 // --- SERVIR FRONTEND (REACT) ---
 
 // Definimos la ruta absoluta a la carpeta build
-const buildPath = path.resolve(__dirname, 'client', 'build');
+const buildPath = path.resolve(__dirname, 'client', 'dist');
 
 // Servir archivos estáticos
 app.use(express.static(buildPath));
@@ -140,7 +140,7 @@ app.get('*', (req, res) => {
     res.sendFile(indexPath, (err) => {
         if (err) {
             // Si llegas aquí, es que la carpeta 'build' no existe o la ruta está mal
-            res.status(500).send("Error crítico: No se encontró la carpeta 'client/build'. Verifica que el proceso de compilación (npm run build) se ejecutó correctamente en Azure.");
+            res.status(500).send("Error crítico: No se encontró la carpeta 'client/dist'. Verifica que el proceso de compilación (npm run dist) se ejecutó correctamente en Azure.");
         }
     });
 });
