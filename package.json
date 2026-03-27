@@ -1,0 +1,17 @@
+{
+  "name": "homeoffice",
+  "version": "1.0.0",
+  "scripts": {
+    "install-client": "cd client && npm install",
+    "build-client": "cd client && npm run build",
+    "install-all": "npm install && npm run install-client",
+    "start": "node server.js",
+    "deploy": "npm run build-client && npm start"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "mssql": "^10.0.4"
+  }
+}
