@@ -128,21 +128,33 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
 
 // --- SERVIR FRONTEND (REACT) ---
 
-// Definimos la ruta absoluta a la carpeta build
+const path = require('path');
+
+// 1. Localizar la carpeta dist de forma absoluta
 const buildPath = path.join(__dirname, 'client', 'dist');
 
-// Servir archivos estáticos
+// Log de diagnóstico (esto aparecerá en tus logs de Azure)
+console.log("Ruta de archivos estáticos configurada en:", buildPath);
+
+// 2. Servir archivos estáticos ANTES de cualquier ruta
 app.use(express.static(buildPath));
 
-// 2. Ruta para el Home (Raíz)
-app.get('/', (req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'));
+// 3. Ruta para la API (asegúrate de que estén arriba del comodín)
+app.get('/api/test', (req, res) => {
+    res.json({ message: "El backend está vivo" });
 });
 
-// 3. Ruta de seguridad para CUALQUIER otra página (Sintaxis Express 5 limpia)
-// Usamos un parámetro llamado "any" sin caracteres especiales
-app.get('/:any', (req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'));
+// 4. El comodín para React (Sintaxis Express 5 segura)
+app.get('/:any*', (req, res) => {
+    const indexPath = path.join(buildPath, 'index.html');
+    
+    // Verificamos si el archivo existe antes de enviarlo
+    res.sendFile(indexPath, (err) => {
+        if (err) {
+            console.error("ERROR: No se encuentra index.html en:", indexPath);
+            res.status(404).send("Error crítico: El servidor no encuentra el frontend en la carpeta dist.");
+        }
+    });
 });
 
 const PORT = process.env.PORT || 8080;
