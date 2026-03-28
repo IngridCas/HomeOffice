@@ -127,22 +127,27 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
 });
 
 // --- SERVIR FRONTEND (REACT) ---
+// --- SERVIR FRONTEND (REACT) EN AZURE ---
+
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
-// 1. Primero servimos los archivos estáticos (importante que vaya antes del comodín)
+// 1. Servir archivos estáticos PRIMERO 
+// (Esto permite que Azure encuentre el index.js, index.css, etc.)
 app.use(express.static(buildPath));
 
+// 2. Endpoint de salud para Azure
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', message: 'Servidor funcionando' });
+    res.json({ status: 'ok', message: 'Servidor funcionando en Azure' });
 });
 
-// 2. Ruta comodín corregida para Express 5
-// Captura cualquier ruta que no haya sido manejada por los endpoints anteriores
-app.get('/:any*', (req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'));
+// 3. LA SOLUCIÓN DEFINITIVA: 
+// Usamos una Regex que dice: "Cualquier ruta que NO empiece con /api"
+// Esto evita el error "Missing parameter name" de Express 5
+app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile(path.resolve(buildPath, 'index.html'));
 });
 
-
+// --- INICIO DEL SERVIDOR ---
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor listo en puerto ${PORT}`);
