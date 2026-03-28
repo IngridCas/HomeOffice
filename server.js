@@ -96,7 +96,7 @@ app.post('/api/asignar', async (req, res) => {
                     .input('f', sql.Date, fecha)
                     .query(`
                         IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
-                        INSERT INTO asignaciones (usuario, fecha) VALUES (@u, @f)
+                        INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
                     `);
             }
             await transaction.commit();
@@ -127,24 +127,20 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
 });
 
 // --- SERVIR FRONTEND (REACT) ---
-
-// 1. Configurar la ruta de la carpeta dist
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
-// 2. Servir archivos estáticos (CSS, JS, imágenes)
+// 1. Primero servimos los archivos estáticos (importante que vaya antes del comodín)
 app.use(express.static(buildPath));
 
-// 3. Ruta de API de prueba para verificar que el servidor vive
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'Servidor funcionando' });
 });
 
-// 4. Ruta comodín SIN ASTERISCO (Sintaxis segura para Express 5)
-// Esto captura todo lo que no sea una ruta definida arriba
-app.get('/:path*', (req, res) => {
+// 2. Ruta comodín corregida para Express 5
+// Captura cualquier ruta que no haya sido manejada por los endpoints anteriores
+app.get('(.*)', (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
 });
-
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor listo en puerto ${PORT}`);
