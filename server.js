@@ -128,8 +128,6 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
 
 // --- SERVIR FRONTEND (REACT) ---
 
-const path = require('path');
-
 // 1. Configurar la ruta de la carpeta dist
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
