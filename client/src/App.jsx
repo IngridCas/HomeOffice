@@ -21,7 +21,7 @@ const App = () => {
   const SETTINGS = {
     areaName: "Planificación de Operaciones",
     maxCapacity: dynamicMaxCapacity, 
-    allowedDays: [1, 2, 3], // Lun, Mar, Mié (Ajustado a índices 1,2,3)
+    allowedDays: [2, 3, 4], // Lun, Mar, Mié (Ajustado a índices 1,2,3)
   };
 
   // --- EFECTO INICIAL: CARGAR DATOS DE AZURE ---
