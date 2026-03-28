@@ -138,9 +138,11 @@ app.get('/api/health', (req, res) => {
 
 // 2. Ruta comodín corregida para Express 5
 // Captura cualquier ruta que no haya sido manejada por los endpoints anteriores
-app.get('(.*)', (req, res) => {
+app.get('/:any*', (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
 });
+
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor listo en puerto ${PORT}`);
