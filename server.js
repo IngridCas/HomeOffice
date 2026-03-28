@@ -115,20 +115,24 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
     try {
         const pool = await getConnection();
-        await pool.request()
+        const result = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fecha)
+            .input('f', sql.Date, fecha) // Asegúrate que sea sql.Date
             .query("DELETE FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f");
         
-        res.json({ success: true });
+        // Esto es clave: te dice si realmente borró algo
+        if (result.rowsAffected > 0) {
+            res.json({ success: true, message: "Eliminado correctamente" });
+        } else {
+            res.status(404).json({ success: false, message: "No se encontró el registro para eliminar" });
+        }
     } catch (err) {
-        res.status(500).json({ error: "No se pudo eliminar el registro" });
+        console.error("Error en DELETE:", err.message);
+        res.status(500).json({ error: "No se pudo eliminar el registro", details: err.message });
     }
 });
 
-// --- SERVIR FRONTEND (REACT) ---
 // --- SERVIR FRONTEND (REACT) EN AZURE ---
-
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
 // 1. Servir archivos estáticos PRIMERO 
