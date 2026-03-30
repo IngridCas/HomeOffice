@@ -55,6 +55,7 @@ app.get('/api/colaboradores', async (req, res) => {
 app.get('/api/asignaciones', async (req, res) => {
     try {
         const pool = await getConnection();
+        // Traemos los datos para cargar el calendario
         const result = await pool.request().query("SELECT usuario, fecha FROM HomeOffice.asignaciones");
         res.json(result.recordset);
     } catch (err) {
@@ -62,7 +63,7 @@ app.get('/api/asignaciones', async (req, res) => {
     }
 });
 
-// 3. Guardar nuevas asignaciones (Con parche de zona horaria)
+// 3. Guardar nuevas asignaciones (Con regla del 50% y Parche de Fecha)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     if (!usuario || !fechas || fechas.length === 0) {
@@ -72,6 +73,7 @@ app.post('/api/asignar', async (req, res) => {
     try {
         const pool = await getConnection();
         
+        // Calcular el límite del 50% dinámicamente
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor(totalRes.recordset.total * 0.5);
 
@@ -80,7 +82,7 @@ app.post('/api/asignar', async (req, res) => {
 
         try {
             for (let fecha of fechas) {
-                // Usamos VarChar para evitar que Node ajuste la fecha por zona horaria
+                // Importante: usamos sql.VarChar para que el string '2026-03-03' llegue exacto a la DB
                 const checkRes = await transaction.request()
                     .input('f', sql.VarChar, fecha) 
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
@@ -108,39 +110,40 @@ app.post('/api/asignar', async (req, res) => {
     }
 });
 
-// 4. Eliminar asignación (Corregido para Azure)
+// 4. Eliminar asignación (Día por día)
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
     try {
         const pool = await getConnection();
         const result = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.VarChar, fecha) // Usamos VarChar para coincidir con el formato guardado
+            .input('f', sql.VarChar, fecha) // Usamos VarChar para que coincida con el formato del POST
             .query("DELETE FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f");
         
-        // rowsAffected es un array, revisamos el primer elemento
+        // rowsAffected es un array, revisamos la primera posición
         if (result.rowsAffected > 0) {
-            res.json({ success: true, message: "Eliminado correctamente" });
+            res.json({ success: true, message: "Registro eliminado correctamente" });
         } else {
-            res.status(404).json({ success: false, message: "No se encontró el registro" });
+            res.status(404).json({ success: false, message: "No se encontró nada para borrar" });
         }
     } catch (err) {
         console.error("Error en DELETE:", err.message);
-        res.status(500).json({ error: "No se pudo eliminar el registro" });
+        res.status(500).json({ error: "Error al eliminar el registro" });
     }
 });
 
 // --- SERVIR FRONTEND (REACT) EN AZURE ---
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
-// Servir estáticos primero
+// Servir archivos estáticos (CSS, JS) primero
 app.use(express.static(buildPath));
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', message: 'Servidor funcionando en Azure' });
+    res.json({ status: 'ok', node_version: process.version });
 });
 
-// Ruta comodín con Regex para Express 5
+// Ruta comodín segura para Express 5 y Azure
+// Captura cualquier navegación del navegador y le entrega el index.html de React
 app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(path.resolve(buildPath, 'index.html'));
 });
@@ -148,5 +151,5 @@ app.get(/^\/(?!api).*/, (req, res) => {
 // --- INICIO ---
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor listo en puerto ${PORT}`);
+    console.log(`Servidor listo y escuchando en puerto ${PORT}`);
 });
