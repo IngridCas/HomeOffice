@@ -20,7 +20,7 @@ const App = () => {
   const SETTINGS = {
     areaName: "Planificación de Operaciones",
     maxCapacity: dynamicMaxCapacity, 
-    allowedDays:, // 2=Mar, 3=Mié, 4=Jue
+    allowedDays: [2, 3, 4], // 2=Mar, 3=Mié, 4=Jue
   };
 
   // --- CARGA DE DATOS ---
