@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const app = express();
 
-// Middlewares
+// --- MIDDLEWARES ---
 app.use(cors());
 app.use(express.json());
 
@@ -19,7 +19,7 @@ const dbConfig = {
     options: {
         encrypt: true, // Obligatorio para Azure SQL
         trustServerCertificate: false,
-        connectTimeout: 30000 // 30 segundos de timeout para evitar caídas en frío
+        connectTimeout: 30000 
     },
     pool: {
         max: 10,
@@ -51,7 +51,7 @@ app.get('/api/colaboradores', async (req, res) => {
     }
 });
 
-// 2. Obtener todas las asignaciones (Carga inicial del calendario)
+// 2. Obtener todas las asignaciones
 app.get('/api/asignaciones', async (req, res) => {
     try {
         const pool = await getConnection();
@@ -62,7 +62,7 @@ app.get('/api/asignaciones', async (req, res) => {
     }
 });
 
-// 3. Guardar nuevas asignaciones (Con regla del 50%)
+// 3. Guardar nuevas asignaciones (Con parche de zona horaria)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     if (!usuario || !fechas || fechas.length === 0) {
@@ -72,28 +72,26 @@ app.post('/api/asignar', async (req, res) => {
     try {
         const pool = await getConnection();
         
-        // Calcular el límite del 50% dinámicamente
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
-        const limite = Math.floor(totalRes.recordset[0].total * 0.5);
+        const limite = Math.floor(totalRes.recordset.total * 0.5);
 
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
 
         try {
             for (let fecha of fechas) {
-                // Validar cupo por cada día solicitado
+                // Usamos VarChar para evitar que Node ajuste la fecha por zona horaria
                 const checkRes = await transaction.request()
-                    .input('f', sql.Date, fecha)
+                    .input('f', sql.VarChar, fecha) 
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
-                if (checkRes.recordset[0].ocupados >= limite) {
+                if (checkRes.recordset.ocupados >= limite) {
                     throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
                 }
 
-                // Insertar si no está ya asignado
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
-                    .input('f', sql.Date, fecha)
+                    .input('f', sql.VarChar, fecha)
                     .query(`
                         IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
                         INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
@@ -110,48 +108,44 @@ app.post('/api/asignar', async (req, res) => {
     }
 });
 
-// 4. Eliminar asignación
+// 4. Eliminar asignación (Corregido para Azure)
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
     try {
         const pool = await getConnection();
         const result = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fecha) // Asegúrate que sea sql.Date
+            .input('f', sql.VarChar, fecha) // Usamos VarChar para coincidir con el formato guardado
             .query("DELETE FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f");
         
-        // Esto es clave: te dice si realmente borró algo
+        // rowsAffected es un array, revisamos el primer elemento
         if (result.rowsAffected > 0) {
             res.json({ success: true, message: "Eliminado correctamente" });
         } else {
-            res.status(404).json({ success: false, message: "No se encontró el registro para eliminar" });
+            res.status(404).json({ success: false, message: "No se encontró el registro" });
         }
     } catch (err) {
         console.error("Error en DELETE:", err.message);
-        res.status(500).json({ error: "No se pudo eliminar el registro", details: err.message });
+        res.status(500).json({ error: "No se pudo eliminar el registro" });
     }
 });
 
 // --- SERVIR FRONTEND (REACT) EN AZURE ---
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
-// 1. Servir archivos estáticos PRIMERO 
-// (Esto permite que Azure encuentre el index.js, index.css, etc.)
+// Servir estáticos primero
 app.use(express.static(buildPath));
 
-// 2. Endpoint de salud para Azure
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'Servidor funcionando en Azure' });
 });
 
-// 3. LA SOLUCIÓN DEFINITIVA: 
-// Usamos una Regex que dice: "Cualquier ruta que NO empiece con /api"
-// Esto evita el error "Missing parameter name" de Express 5
+// Ruta comodín con Regex para Express 5
 app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(path.resolve(buildPath, 'index.html'));
 });
 
-// --- INICIO DEL SERVIDOR ---
+// --- INICIO ---
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor listo en puerto ${PORT}`);
