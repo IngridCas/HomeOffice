@@ -24,39 +24,51 @@ const App = () => {
   };
 
   // --- CARGA DE DATOS ---
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        const [resStaff, resApps] = await Promise.all([
-          fetch('/api/colaboradores'),
-          fetch('/api/asignaciones')
-        ]);
+useEffect(() => {
+  const loadInitialData = async () => {
+    try {
+      const [resStaff, resApps] = await Promise.all([
+        fetch('/api/colaboradores'),
+        fetch('/api/asignaciones')
+      ]);
 
-        const staffData = await resStaff.json();
-        const appsData = await resApps.json();
+      const staffData = await resStaff.json();
+      const appsData = await resApps.json();
 
-        setStaffList(staffData);
+      setStaffList(staffData);
+      
+      // PARCHE CRÍTICO: Convertir cualquier formato de fecha de SQL a objeto Date local
+      const correctedApps = appsData.map(a => {
+        let fechaStr = "";
+
+        // Si es un string (ej. "2026-03-30T00:00:00Z"), tomamos solo la fecha
+        if (typeof a.fecha === 'string') {
+          fechaStr = a.fecha.split('T');
+        } 
+        // Si ya es un objeto Date, lo convertimos a string YYYY-MM-DD
+        else if (a.fecha instanceof Date || a.fecha !== null) {
+          fechaStr = new Date(a.fecha).toISOString().split('T');
+        }
+
+        // Creamos la fecha usando componentes numéricos para evitar desfases de zona horaria
+        const [year, month, day] = fechaStr.split('-').map(Number);
         
-        // PARCHE DE FECHA: Evita desfase horario al cargar
-        const correctedApps = appsData.map(a => {
-          const fechaSoloDia = a.fecha.split('T'); 
-          const [year, month, day] = fechaSoloDia.split('-').map(Number);
-          return {
-            ...a,
-            date: new Date(year, month - 1, day), // Crea fecha local pura
-            user: a.usuario
-          };
-        });
+        return {
+          ...a,
+          date: new Date(year, month - 1, day), // month - 1 porque en JS Enero es 0
+          user: a.usuario // Aseguramos que usamos la misma propiedad que en el render
+        };
+      });
 
-        setAppointments(correctedApps);
-        setLoading(false);
-      } catch (error) {
-        console.error("Error conectando con Azure:", error);
-        setLoading(false);
-      }
-    };
-    loadInitialData();
-  }, []);
+      setAppointments(correctedApps);
+      setLoading(false);
+    } catch (error) {
+      console.error("Error cargando datos:", error);
+      setLoading(false);
+    }
+  };
+  loadInitialData();
+}, []);
 
   // --- LÓGICA DE CALENDARIO ---
   const startOfCalendar = startOfMonth(currentDate);
