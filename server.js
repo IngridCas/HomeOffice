@@ -134,23 +134,19 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
 // --- SERVIR FRONTEND (REACT) EN AZURE ---
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
-// 1. Servir archivos estáticos primero
+// 1. Servir archivos estáticos
 app.use(express.static(buildPath));
 
-// 2. Health check
+// 2. Ruta de salud (siempre útil para monitoreo)
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', message: 'Servidor funcionando' });
+    res.json({ status: 'ok' });
 });
 
-// 3. CORRECCIÓN PARA EXPRESS 5: Manejo de rutas SPA (React Router)
-// Esto evita el error "Missing parameter name" al usar comodines
-app.get('*', (req, res, next) => {
-    // Si la ruta empieza por /api, la dejamos pasar para que falle con 404 normal si no existe
-    if (req.path.startsWith('/api')) {
-        return next();
-    }
-    // Para todo lo demás, enviamos el index.html de React
-    res.sendFile(path.resolve(buildPath, 'index.html'));
+// 3. LA SOLUCIÓN DEFINITIVA: 
+// Usar una expresión regular pura (sin comillas) 
+// Esto evita que Express 5 busque un ":name" que no existe.
+app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
 });
 
 // --- INICIO DEL SERVIDOR ---
