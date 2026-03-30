@@ -20,55 +20,56 @@ const App = () => {
   const SETTINGS = {
     areaName: "Planificación de Operaciones",
     maxCapacity: dynamicMaxCapacity, 
-    allowedDays: [2, 3, 4], // 2=Mar, 3=Mié, 4=Jue
+    allowedDays: [2, 3, 4], // Martes, Miércoles, Jueves
   };
 
   // --- CARGA DE DATOS ---
-useEffect(() => {
-  const loadInitialData = async () => {
-    try {
-      const [resStaff, resApps] = await Promise.all([
-        fetch('/api/colaboradores'),
-        fetch('/api/asignaciones')
-      ]);
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const [resStaff, resApps] = await Promise.all([
+          fetch('/api/colaboradores'),
+          fetch('/api/asignaciones')
+        ]);
 
-      const staffData = await resStaff.json();
-      const appsData = await resApps.json();
+        const staffData = await resStaff.json();
+        const appsData = await resApps.json();
 
-      setStaffList(staffData);
-      
-      // PARCHE CRÍTICO: Convertir cualquier formato de fecha de SQL a objeto Date local
-      const correctedApps = appsData.map(a => {
-        let fechaStr = "";
-
-        // Si es un string (ej. "2026-03-30T00:00:00Z"), tomamos solo la fecha
-        if (typeof a.fecha === 'string') {
-          fechaStr = a.fecha.split('T');
-        } 
-        // Si ya es un objeto Date, lo convertimos a string YYYY-MM-DD
-        else if (a.fecha instanceof Date || a.fecha !== null) {
-          fechaStr = new Date(a.fecha).toISOString().split('T');
-        }
-
-        // Creamos la fecha usando componentes numéricos para evitar desfases de zona horaria
-        const [year, month, day] = fechaStr.split('-').map(Number);
+        setStaffList(staffData);
         
-        return {
-          ...a,
-          date: new Date(year, month - 1, day), // month - 1 porque en JS Enero es 0
-          user: a.usuario // Aseguramos que usamos la misma propiedad que en el render
-        };
-      });
+        // PARCHE CRÍTICO: Conversión segura de formatos SQL a Date de JS
+        const correctedApps = appsData.map(a => {
+          let fechaStr = "";
 
-      setAppointments(correctedApps);
-      setLoading(false);
-    } catch (error) {
-      console.error("Error cargando datos:", error);
-      setLoading(false);
-    }
-  };
-  loadInitialData();
-}, []);
+          if (typeof a.fecha === 'string') {
+            // Tomamos solo la parte YYYY-MM-DD
+            fechaStr = a.fecha.split('T'); 
+          } 
+          else if (a.fecha instanceof Date) {
+            fechaStr = a.fecha.toISOString().split('T');
+          }
+
+          if (!fechaStr) return null;
+
+          // Creamos la fecha local pura para evitar que se mueva de día
+          const [year, month, day] = fechaStr.split('-').map(Number);
+          
+          return {
+            ...a,
+            date: new Date(year, month - 1, day), 
+            user: a.usuario 
+          };
+        }).filter(Boolean); // Limpiamos nulos si los hubiera
+
+        setAppointments(correctedApps);
+        setLoading(false);
+      } catch (error) {
+        console.error("Error cargando datos de Azure:", error);
+        setLoading(false);
+      }
+    };
+    loadInitialData();
+  }, []);
 
   // --- LÓGICA DE CALENDARIO ---
   const startOfCalendar = startOfMonth(currentDate);
@@ -77,13 +78,12 @@ useEffect(() => {
   
   const businessDays = allDays.filter(day => {
     const d = getDay(day);
-    return d !== 0 && d !== 6; // Lunes a Viernes
+    return d !== 0 && d !== 6; 
   });
 
   const firstDayDayOfWeek = getDay(startOfCalendar);
   const skipCount = firstDayDayOfWeek === 0 || firstDayDayOfWeek === 6 ? 0 : firstDayDayOfWeek - 1;
   const emptyDays = Array(Math.max(0, skipCount)).fill(null);
-  const masterWeekNumber = getWeek(new Date()); // Semana actual para habilitar edición
 
   // --- ASIGNAR (POST) ---
   const handleAssign = async (day) => {
@@ -92,11 +92,7 @@ useEffect(() => {
         return;
     }
 
-    // Solo permitir asignar en la semana maestra (opcional según tu regla)
-    // if (getWeek(day) !== masterWeekNumber) return;
-
     const dayOfWeek = getDay(day);
-    // Replica el día seleccionado en todos los martes/miércoles/jueves del mes
     const replicaFechas = businessDays
       .filter(d => getDay(d) === dayOfWeek && isSameMonth(d, currentDate))
       .map(d => format(d, 'yyyy-MM-dd'));
@@ -112,14 +108,13 @@ useEffect(() => {
       });
 
       if (response.ok) {
-        // Recargar para asegurar sincronía total con la DB
-        window.location.reload();
+        window.location.reload(); // Recarga para ver cambios reflejados desde DB
       } else {
         const errorData = await response.json();
         alert(errorData.error || "Error al asignar");
       }
     } catch (err) {
-      alert("Error de red al conectar con Azure");
+      alert("Error de red al conectar con el servidor");
     }
   };
 
@@ -133,15 +128,14 @@ useEffect(() => {
       });
 
       if (response.ok) {
-        // Filtra el estado local para quitar solo ese registro
         setAppointments(prev => prev.filter(app => 
           !(isSameDay(app.date, day) && app.user === userName)
         ));
       } else {
-          alert("No se pudo eliminar el registro de la base de datos.");
+          alert("No se pudo eliminar el registro.");
       }
     } catch (err) {
-      alert("Error al conectar con el servidor para eliminar");
+      alert("Error al intentar eliminar");
     }
   };
 
@@ -165,7 +159,7 @@ useEffect(() => {
     limitWarning: { color: '#e11d48', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }
   };
 
-  if (loading) return <div style={{padding: '100px', textAlign: 'center', fontWeight: 'bold'}}>Conectando con Azure SQL...</div>;
+  if (loading) return <div style={{padding: '100px', textAlign: 'center', fontWeight: 'bold'}}>Actualizando datos desde Azure...</div>;
 
   return (
     <div style={styles.container}>
@@ -175,7 +169,7 @@ useEffect(() => {
             <Calendar color="#4f46e5" size={24} />
             <div>
               <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '900' }}>{SETTINGS.areaName}</h1>
-              <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Capacidad: {SETTINGS.maxCapacity} personas por día</p>
+              <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Cupo máximo: {SETTINGS.maxCapacity} personas</p>
             </div>
           </div>
           <select 
@@ -226,7 +220,7 @@ useEffect(() => {
                 <div style={{ flex: 1, marginTop: '12px' }}>
                   {dayApps.map((app, i) => (
                     <div key={i} style={styles.badge}>
-                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '80%' }}>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '85%' }}>
                         {app.user}
                       </span>
                       <Trash2 
