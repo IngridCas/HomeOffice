@@ -17,62 +17,61 @@ const dbConfig = {
     server: process.env.DB_SERVER, 
     database: process.env.DB_NAME,
     options: {
-        encrypt: true, // Obligatorio para Azure SQL
+        encrypt: true, 
         trustServerCertificate: false,
         connectTimeout: 30000 
-    },
-    pool: {
-        max: 10,
-        min: 0,
-        idleTimeoutMillis: 30000
     }
 };
 
-// Función para conectar a la DB
 async function getConnection() {
     try {
         return await sql.connect(dbConfig);
     } catch (err) {
-        console.error("Error de conexión a SQL Server:", err.message);
+        console.error("ERROR CRÍTICO DE CONEXIÓN:", err.message);
         throw err;
     }
 }
 
-// --- ENDPOINTS DE LA API ---
+// --- API ENDPOINTS ---
 
-// 1. Obtener lista de colaboradores
+// 1. Colaboradores
 app.get('/api/colaboradores', async (req, res) => {
     try {
         const pool = await getConnection();
         const result = await pool.request().query("SELECT nombre FROM HomeOffice.colaboradores WHERE activo = 1 ORDER BY nombre");
         res.json(result.recordset.map(r => r.nombre));
     } catch (err) {
-        res.status(500).json({ error: "No se pudo obtener la lista de staff", details: err.message });
+        res.status(500).json({ error: err.message });
     }
 });
 
-// 2. Obtener todas las asignaciones
+// 2. Obtener Asignaciones (CON PARCHE DE FORMATO)
 app.get('/api/asignaciones', async (req, res) => {
     try {
         const pool = await getConnection();
-        const result = await pool.request().query("SELECT usuario, fecha FROM HomeOffice.asignaciones");
+        // Forzamos formato YYYY-MM-DD desde el motor SQL para evitar líos de zona horaria
+        const result = await pool.request().query(`
+            SELECT 
+                usuario, 
+                CONVERT(VARCHAR, fecha, 23) as fecha 
+            FROM HomeOffice.asignaciones
+        `);
+        
+        console.log(`[DEBUG] Enviando ${result.recordset.length} registros al frontend`);
         res.json(result.recordset);
     } catch (err) {
-        res.status(500).json({ error: "Error al cargar el calendario", details: err.message });
+        console.error("ERROR GET ASIGNACIONES:", err.message);
+        res.status(500).json({ error: "Error al cargar el calendario" });
     }
 });
 
-// 3. Guardar nuevas asignaciones (Corregido recordset)
+// 3. Guardar Asignaciones
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
-    if (!usuario || !fechas || fechas.length === 0) {
-        return res.status(400).json({ error: "Datos incompletos" });
-    }
+    if (!usuario || !fechas) return res.status(400).json({ error: "Faltan datos" });
 
     try {
         const pool = await getConnection();
-        
-        // CORRECCIÓN: Acceso a recordset para el conteo total
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor(totalRes.recordset.total * 0.5);
 
@@ -81,17 +80,14 @@ app.post('/api/asignar', async (req, res) => {
 
         try {
             for (let fecha of fechas) {
-                // Validación de cupo por cada día
                 const checkRes = await transaction.request()
-                    .input('f', sql.VarChar, fecha) 
+                    .input('f', sql.VarChar, fecha)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
-                // CORRECCIÓN: Acceso a recordset para los ocupados
                 if (checkRes.recordset.ocupados >= limite) {
-                    throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
+                    throw new Error(`Cupo lleno para el día ${fecha}`);
                 }
 
-                // Insertar si no existe
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.VarChar, fecha)
@@ -107,11 +103,11 @@ app.post('/api/asignar', async (req, res) => {
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        res.status(500).json({ error: "Error en el servidor de base de datos" });
+        res.status(500).json({ error: "Error de DB" });
     }
 });
 
-// 4. Eliminar asignación (Corregido rowsAffected)
+// 4. Eliminar Asignación
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
     try {
@@ -122,15 +118,14 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
             .query("DELETE FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f");
         
         if (result.rowsAffected > 0) {
-            res.json({ success: true, message: "Eliminado correctamente" });
+            res.json({ success: true });
         } else {
-            res.status(404).json({ success: false, message: "No se encontró el registro" });
+            res.status(404).json({ error: "No se encontró registro para eliminar" });
         }
     } catch (err) {
-        res.status(500).json({ error: "No se pudo eliminar el registro", details: err.message });
+        res.status(500).json({ error: err.message });
     }
 });
-
 // --- SERVIR FRONTEND (REACT) EN AZURE ---
 const buildPath = path.resolve(__dirname, 'client', 'dist');
 
@@ -142,7 +137,7 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
-// 3. LA SOLUCIÓN DEFINITIVA: 
+// 3. MUESTRA
 // Usar una expresión regular pura (sin comillas) 
 // Esto evita que Express 5 busque un ":name" que no existe.
 app.get(/^\/(?!api).*/, (req, res) => {
