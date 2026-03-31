@@ -67,8 +67,7 @@ app.get('/api/asignaciones', async (req, res) => {
     }
 });
 
-
-// 3. Guardar nuevas asignaciones
+// 3. Guardar nuevas asignaciones (VERSIÓN ORIGINAL QUE TE FUNCIONÓ)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     
@@ -78,29 +77,8 @@ app.post('/api/asignar', async (req, res) => {
 
     try {
         const pool = await getConnection();
-
-        // --- VALIDACIÓN DE MES (Segura contra "Invalid time value") ---
-        // Usamos la primera fecha tal cual viene del frontend
-        const fRef = fechas; 
         
-        const checkUserMonth = await pool.request()
-            .input('u', sql.NVarChar, usuario)
-            .input('f', sql.VarChar, fRef) // Lo enviamos como texto para que SQL lo convierta
-            .query(`
-                SELECT TOP 1 fecha 
-                FROM HomeOffice.asignaciones 
-                WHERE usuario = @u 
-                AND MONTH(fecha) = MONTH(CAST(@f AS DATE)) 
-                AND YEAR(fecha) = YEAR(CAST(@f AS DATE))
-            `);
-
-        if (checkUserMonth.recordset.length > 0) {
-            return res.status(400).json({ 
-                error: `${usuario} ya tiene una asignación este mes.` 
-            });
-        }
-
-        // --- LÓGICA DE GUARDADO QUE YA TE FUNCIONABA ---
+        // Límite del 50%
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor(totalRes.recordset.total * 0.5); 
         
@@ -109,9 +87,7 @@ app.post('/api/asignar', async (req, res) => {
         
         try {
             for (let fecha of fechas) {
-                // Verificamos que la fecha sea válida antes de usarla
-                if (!fecha) continue;
-
+                // Verificar cupo usando la fecha como texto para evitar errores
                 const checkRes = await transaction.request()
                     .input('f', sql.VarChar, fecha)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = CAST(@f AS DATE)");
@@ -120,6 +96,7 @@ app.post('/api/asignar', async (req, res) => {
                     throw new Error(`Cupo lleno.`);
                 }
 
+                // Insertar usando CAST para seguridad total en Azure
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.VarChar, fecha)
@@ -140,7 +117,6 @@ app.post('/api/asignar', async (req, res) => {
         res.status(500).json({ error: "Error en el servidor: " + err.message });
     }
 });
-
 // 4. Eliminar asignaciones (Borrado en cascada para todo el mes)
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
