@@ -68,64 +68,42 @@ app.get('/api/asignaciones', async (req, res) => {
 });
 
 
-// 3. Guardar nuevas asignaciones
-// 3. Guardar nuevas asignaciones
+// 3. Guardar nuevas asignaciones (VERSIÓN ORIGINAL CORREGIDA)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
-
-    if (!usuario || !fechas || !Array.isArray(fechas) || fechas.length === 0) {
-        return res.status(400).json({ error: "Datos incompletos o inválidos" });
+    
+    if (!usuario || !fechas || fechas.length === 0) {
+        return res.status(400).json({ error: "Datos incompletos" });
     }
 
     try {
         const pool = await getConnection();
-
-        // --- 1. LIMPIEZA DE FECHAS ---
-        const fechasLimpias = fechas.map(f => {
-            const d = new Date(f);
-            return d.toISOString().split('T'); // Esto garantiza formato YYYY-MM-DD
-        });
-
-        // IMPORTANTE: Definir fechaRef como un valor único, NO como el array completo
-        const fechaRef = fechasLimpias; 
-
-        // --- 2. VALIDACIÓN: Solo un día de la semana por mes ---
-        const checkUser = await pool.request()
-            .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fechaRef) 
-            .query(`
-                SELECT TOP 1 fecha FROM HomeOffice.asignaciones 
-                WHERE usuario = @u 
-                AND MONTH(fecha) = MONTH(@f) 
-                AND YEAR(fecha) = YEAR(@f)
-                AND DATEPART(dw, fecha) != DATEPART(dw, @f)
-            `);
-
-        if (checkUser.recordset && checkUser.recordset.length > 0) {
-            return res.status(400).json({ error: "Este colaborador ya tiene asignado un día diferente este mes." });
-        }
-
-        // --- 3. CÁLCULO DE LÍMITE (Acceso corregido a recordset) ---
+        
+        // 1. Obtener total de colaboradores para el límite (Corregido con)
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
-        const limite = Math.floor((totalRes.recordset.total || 20) * 0.5);
+        const limite = Math.floor(totalRes.recordset.total * 0.5); 
         
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
         
         try {
-            for (let f of fechasLimpias) {
-                // Verificar cupo (Acceso corregido a recordset)
+            for (let fecha of fechas) {
+                // Limpiar la fecha para que SQL no de error de "Invalid Date"
+                const fechaLimpia = new Date(fecha).toISOString().split('T');
+
+                // 2. Verificar cupo (Corregido con)
                 const checkRes = await transaction.request()
-                    .input('f', sql.Date, f)
+                    .input('f', sql.Date, fechaLimpia)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
                 if (checkRes.recordset.ocupados >= limite) {
-                    throw new Error(`Cupo lleno para el día ${f}.`);
+                    throw new Error(`El día ${fechaLimpia} ya alcanzó el límite del 50% (${limite} personas).`);
                 }
 
+                // 3. Insertar si no existe
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
-                    .input('f', sql.Date, f)
+                    .input('f', sql.Date, fechaLimpia)
                     .query(`
                         IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
                         BEGIN
@@ -140,7 +118,9 @@ app.post('/api/asignar', async (req, res) => {
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        res.status(500).json({ error: "Error interno: " + err.message });
+        // Detalle del error para debugging
+        console.error(err);
+        res.status(500).json({ error: "Error en el servidor", details: err.message });
     }
 });
 
