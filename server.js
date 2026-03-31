@@ -51,87 +51,65 @@ app.get('/api/colaboradores', async (req, res) => {
 });
 
 // 2. Obtener todas las asignaciones (CORREGIDO PARA EVITAR ERROR .SPLIT)
-app.get('/api/asignaciones', async (req, res) => {
-    try {
-        const pool = await getConnection();
-        // Convertimos la fecha a VARCHAR(10) directamente en SQL para que React reciba "YYYY-MM-DD"
-        const result = await pool.request().query(`
-            SELECT 
-                usuario, 
-                CONVERT(VARCHAR(10), fecha, 120) as fecha 
-            FROM HomeOffice.asignaciones
-        `);    
-        res.json(result.recordset);
-    } catch (err) {
-        res.status(500).json({ error: "Error al cargar el calendario", details: err.message });
-    }
-});
-
-// 3. Guardar nuevas asignaciones
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     if (!usuario || !fechas || fechas.length === 0) {
         return res.status(400).json({ error: "Datos incompletos" });
     }
 
+    let pool;
     try {
-        const pool = await getConnection();
+        pool = await getConnection();
         
-        // --- NUEVA VALIDACIÓN: ¿Ya tiene asignado OTRO día este mes? ---
-        // Tomamos la primera fecha para saber qué mes y año validar
-        const fechaReferencia = fechas;
-        const checkUserRes = await pool.request()
+        // 1. Validar si ya existe en OTRO día de la semana este mes
+        const fechaRef = fechas;
+        const checkUser = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fechaReferencia)
+            .input('f', sql.Date, fechaRef)
             .query(`
                 SELECT TOP 1 fecha 
                 FROM HomeOffice.asignaciones 
                 WHERE usuario = @u 
                 AND MONTH(fecha) = MONTH(@f) 
                 AND YEAR(fecha) = YEAR(@f)
-                AND DATEPART(dw, fecha) != DATEPART(dw, @f) -- Que no sea el mismo día que intenta guardar
+                AND DATEPART(dw, fecha) != DATEPART(dw, @f)
             `);
 
-        if (checkUserRes.recordset.length > 0) {
-            const fechaExistente = checkUserRes.recordset.fecha.toISOString().split('T');
+        if (checkUser.recordset.length > 0) {
             return res.status(400).json({ 
-                error: `El usuario ya tiene una asignación el día ${fechaExistente}. Solo se permite un día por semana al mes.` 
+                error: `El colaborador ya está asignado a otro día de la semana este mes.` 
             });
         }
 
-        // --- VALIDACIÓN DE CUPO (REGLA DEL 50%) ---
-        const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
-        const limite = Math.floor(totalRes.recordset.total * 0.5);
-
+        // 2. Ejecutar inserción en transacción
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
 
         try {
-            for (let fecha of fechas) {
-                const checkCupo = await transaction.request()
-                    .input('f', sql.Date, fecha)
-                    .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
-
-                if (checkCupo.recordset.ocupados >= limite) {
-                    throw new Error(`El día ${fecha} alcanzó el límite.`);
-                }
-
+            for (let f of fechas) {
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
-                    .input('f', sql.Date, fecha)
+                    .input('f', sql.Date, f)
                     .query(`
                         IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
-                        INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
+                        BEGIN
+                            INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
+                        END
                     `);
             }
             await transaction.commit();
             res.json({ success: true });
-        } catch (error) {
+        } catch (transError) {
             await transaction.rollback();
-            res.status(400).json({ error: error.message });
+            throw transError; // Lanza al catch principal
         }
+
     } catch (err) {
-        res.status(500).json({ error: "Error en el servidor" });
+        console.error("DETALLE DEL ERROR 500:", err.message);
+        res.status(500).json({ 
+            error: "Error interno en el servidor", 
+            message: err.message // Esto te dirá exactamente qué falló en el navegador
+        });
     }
 });
 
