@@ -69,53 +69,61 @@ app.get('/api/asignaciones', async (req, res) => {
 
 
 // 3. Guardar nuevas asignaciones
-// 3. Guardar nuevas asignaciones
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
-    if (!usuario || !fechas || fechas.length === 0) {
-        return res.status(400).json({ error: "Datos incompletos" });
+
+    // Validación inicial de datos
+    if (!usuario || !fechas || !Array.isArray(fechas) || fechas.length === 0) {
+        return res.status(400).json({ error: "Datos incompletos o formato de fecha incorrecto" });
     }
 
     try {
         const pool = await getConnection();
 
-        // VALIDACIÓN: Solo un día de la semana por mes
-        // Usamos la primera fecha del array para validar el mes
-        const fechaRef = new Date(fechas).toISOString().split('T');
+        // --- 1. LIMPIEZA SEGURA DE FECHAS ---
+        // Convertimos todo a string YYYY-MM-DD para evitar problemas de zona horaria
+        const fechasLimpias = fechas.map(f => {
+            if (typeof f === 'string') return f.split('T');
+            return new Date(f).toISOString().split('T');
+        });
 
+        const fechaRef = fechasLimpias;
+
+        // --- 2. VALIDACIÓN: Solo un día de la semana por mes ---
         const checkUser = await pool.request()
             .input('u', sql.NVarChar, usuario)
             .input('f', sql.Date, fechaRef)
             .query(`
                 SELECT TOP 1 fecha FROM HomeOffice.asignaciones 
-                WHERE usuario = @u AND MONTH(fecha) = MONTH(@f) AND YEAR(fecha) = YEAR(@f)
-                AND DATEPART(dw, fecha) != DATEPART(dw, @f)
+                WHERE usuario = @u 
+                AND MONTH(fecha) = MONTH(CAST(@f AS DATE)) 
+                AND YEAR(fecha) = YEAR(CAST(@f AS DATE))
+                AND DATEPART(dw, fecha) != DATEPART(dw, CAST(@f AS DATE))
             `);
 
-        if (checkUser.recordset.length > 0) {
-            return res.status(400).json({ error: "Ya tienes asignado un día diferente este mes." });
+        if (checkUser.recordset && checkUser.recordset.length > 0) {
+            return res.status(400).json({ error: "Este colaborador ya tiene asignado un día diferente este mes." });
         }
 
-        // CÁLCULO DE LÍMITE
+        // --- 3. CÁLCULO DE LÍMITE (50%) ---
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
-        const limite = Math.floor(totalRes.recordset.total * 0.5);
+        const limite = Math.floor((totalRes.recordset.total || 20) * 0.5);
         
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
         
         try {
-            for (let f of fechas) {
-                // Limpieza de fecha: Asegurar formato YYYY-MM-DD
-                const fechaLimpia = new Date(f).toISOString().split('T');
-
+            for (let fechaLimpia of fechasLimpias) {
+                // Verificar cupo por cada fecha
                 const checkRes = await transaction.request()
                     .input('f', sql.Date, fechaLimpia)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
                 if (checkRes.recordset.ocupados >= limite) {
-                    throw new Error(`El día ${fechaLimpia} ya alcanzó el límite del 50%.`);
+                    throw new Error(`El límite de cupo (50%) se alcanzó para el día ${fechaLimpia}.`);
                 }
 
+                // Inserción final
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.Date, fechaLimpia)
@@ -129,11 +137,12 @@ app.post('/api/asignar', async (req, res) => {
             await transaction.commit();
             res.json({ success: true });
         } catch (error) {
-            await transaction.rollback();
+            if (transaction) await transaction.rollback();
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        res.status(500).json({ error: "Error en el servidor: " + err.message });
+        console.error("Error en POST /api/asignar:", err);
+        res.status(500).json({ error: "Error interno: " + err.message });
     }
 });
 
