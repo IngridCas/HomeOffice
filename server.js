@@ -67,24 +67,25 @@ app.get('/api/asignaciones', async (req, res) => {
     }
 });
 
-// 3. Guardar nuevas asignaciones (VERSIÓN ORIGINAL QUE TE FUNCIONÓ)
-
+// 3. Guardar nuevas asignaciones (VERSIÓN DEFINITIVA RESISTENTE)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
-    if (!usuario || !fechas || fechas.length === 0) {
+    if (!usuario || !fechas || !Array.isArray(fechas) || fechas.length === 0) {
         return res.status(400).json({ error: "Datos incompletos" });
     }
 
     try {
         const pool = await getConnection();
 
-        // --- 1. LIMPIEZA DE FECHAS A FORMATO UNIVERSAL (YYYYMMDD) ---
+        // --- 1. LIMPIEZA DE FECHAS SEGURA ---
         const fechasLimpias = fechas.map(f => {
-            // Esto quita los guiones: "2026-03-31" -> "20260331"
-            return f.split('T').replace(/-/g, '');
+            // Convertimos CUALQUIER COSA a string primero para evitar el error .replace()
+            let strFecha = String(f); 
+            // Extraemos solo los números (YYYYMMDD)
+            return strFecha.split('T').replace(/[^0-9]/g, '');
         });
 
-        // --- 2. VALIDACIÓN DE MES ---
+        // --- 2. VALIDACIÓN DE MES (Usando formato universal YYYYMMDD) ---
         const fRef = fechasLimpias;
         const checkUserMonth = await pool.request()
             .input('u', sql.NVarChar, usuario)
@@ -109,7 +110,6 @@ app.post('/api/asignar', async (req, res) => {
 
         try {
             for (let f of fechasLimpias) {
-                // Cupo por día
                 const checkRes = await transaction.request()
                     .input('f', sql.VarChar, f)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = CAST(@f AS DATE)");
@@ -118,7 +118,6 @@ app.post('/api/asignar', async (req, res) => {
                     throw new Error(`Cupo lleno para el día ${f}.`);
                 }
 
-                // Inserción final
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.VarChar, f)
@@ -139,6 +138,7 @@ app.post('/api/asignar', async (req, res) => {
         res.status(500).json({ error: "Error en el servidor: " + err.message });
     }
 });
+
 // 4. Eliminar asignaciones (Borrado en cascada para todo el mes)
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
