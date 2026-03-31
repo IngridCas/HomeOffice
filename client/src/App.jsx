@@ -18,7 +18,7 @@ const App = () => {
   const SETTINGS = {
     areaName: "Planificación de Operaciones",
     maxCapacity: dynamicMaxCapacity, 
-    allowedDays:, // Martes, Miércoles, Jueves
+    allowedDays:[2, 3, 4], // Martes, Miércoles, Jueves
   };
 
   useEffect(() => {
