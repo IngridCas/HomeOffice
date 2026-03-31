@@ -50,93 +50,120 @@ app.get('/api/colaboradores', async (req, res) => {
     }
 });
 
-// 2. Obtener todas las asignaciones 
+// 2. Obtener todas las asignaciones (Carga inicial del calendario)
+
 app.get('/api/asignaciones', async (req, res) => {
+
     try {
+
         const pool = await getConnection();
-        // Convertimos la fecha a VARCHAR(10) directamente en SQL para que React reciba "YYYY-MM-DD"
-        const result = await pool.request().query(`
-            SELECT 
-                usuario, 
-                CONVERT(VARCHAR(10), fecha, 120) as fecha 
-            FROM HomeOffice.asignaciones
-        `);    
+
+        const result = await pool.request().query("SELECT usuario, fecha FROM HomeOffice.asignaciones");
+
         res.json(result.recordset);
+
     } catch (err) {
+
         res.status(500).json({ error: "Error al cargar el calendario", details: err.message });
+
     }
+
 });
 
-// 3. Guardar nuevas asignaciones (VERSIÓN DEFINITIVA RESISTENTE)
+
+
+// 3. Guardar nuevas asignaciones (Con regla del 50%)
+
 app.post('/api/asignar', async (req, res) => {
+
     const { usuario, fechas } = req.body;
-    if (!usuario || !fechas || !Array.isArray(fechas) || fechas.length === 0) {
+
+    if (!usuario || !fechas || fechas.length === 0) {
+
         return res.status(400).json({ error: "Datos incompletos" });
+
     }
+
+
 
     try {
+
         const pool = await getConnection();
 
-        // --- 1. LIMPIEZA DE FECHAS SEGURA ---
-        const fechasLimpias = fechas.map(f => {
-            // Convertimos CUALQUIER COSA a string primero para evitar el error .replace()
-            let strFecha = String(f); 
-            // Extraemos solo los números (YYYYMMDD)
-            return strFecha.split('T').replace(/[^0-9]/g, '');
-        });
+       
 
-        // --- 2. VALIDACIÓN DE MES (Usando formato universal YYYYMMDD) ---
-        const fRef = fechasLimpias;
-        const checkUserMonth = await pool.request()
-            .input('u', sql.NVarChar, usuario)
-            .input('f', sql.VarChar, fRef) 
-            .query(`
-                SELECT TOP 1 fecha FROM HomeOffice.asignaciones 
-                WHERE usuario = @u 
-                AND MONTH(fecha) = MONTH(CAST(@f AS DATE)) 
-                AND YEAR(fecha) = YEAR(CAST(@f AS DATE))
-            `);
+        // Calcular el límite del 50% dinámicamente
 
-        if (checkUserMonth.recordset.length > 0) {
-            return res.status(400).json({ error: `${usuario} ya tiene una asignación este mes.` });
-        }
-
-        // --- 3. CÁLCULO DE LÍMITE ---
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
-        const limite = Math.floor(totalRes.recordset.total * 0.5);
+
+        const limite = Math.floor(totalRes.recordset[0].total * 0.5);
+
+
 
         const transaction = new sql.Transaction(pool);
+
         await transaction.begin();
 
-        try {
-            for (let f of fechasLimpias) {
-                const checkRes = await transaction.request()
-                    .input('f', sql.VarChar, f)
-                    .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = CAST(@f AS DATE)");
 
-                if (checkRes.recordset.ocupados >= limite) {
-                    throw new Error(`Cupo lleno para el día ${f}.`);
+
+        try {
+
+            for (let fecha of fechas) {
+
+                // Validar cupo por cada día solicitado
+
+                const checkRes = await transaction.request()
+
+                    .input('f', sql.Date, fecha)
+
+                    .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
+
+
+
+                if (checkRes.recordset[0].ocupados >= limite) {
+
+                    throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
+
                 }
 
+
+
+                // Insertar si no está ya asignado
+
                 await transaction.request()
+
                     .input('u', sql.NVarChar, usuario)
-                    .input('f', sql.VarChar, f)
+
+                    .input('f', sql.Date, fecha)
+
                     .query(`
-                        IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = CAST(@f AS DATE))
-                        BEGIN
-                            INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, CAST(@f AS DATE))
-                        END
+
+                        IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
+
+                        INSERT INTO asignaciones (usuario, fecha) VALUES (@u, @f)
+
                     `);
+
             }
+
             await transaction.commit();
+
             res.json({ success: true });
+
         } catch (error) {
-            if (transaction) await transaction.rollback();
+
+            await transaction.rollback();
+
             res.status(400).json({ error: error.message });
+
         }
+
     } catch (err) {
-        res.status(500).json({ error: "Error en el servidor: " + err.message });
+
+        res.status(500).json({ error: "Error en el servidor de base de datos" });
+
     }
+
 });
 
 // 4. Eliminar asignaciones (Borrado en cascada para todo el mes)
