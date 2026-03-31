@@ -6,21 +6,19 @@ require('dotenv').config();
 const app = express();
 
 // Middlewares
-
 app.use(cors());
 app.use(express.json());
 
 // --- CONFIGURACIÓN DE SQL SERVER ---
-
 const dbConfig = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     server: process.env.DB_SERVER,
     database: process.env.DB_NAME,
     options: {
-        encrypt: true, // Obligatorio para Azure SQL
+        encrypt: true, 
         trustServerCertificate: false,
-        connectTimeout: 30000 // 30 segundos de timeout para evitar caídas en frío
+        connectTimeout: 30000 
     },
     pool: {
         max: 10,
@@ -28,7 +26,6 @@ const dbConfig = {
         idleTimeoutMillis: 30000
     }
 };
-
 
 // Función para conectar a la DB
 async function getConnection() {
@@ -39,7 +36,6 @@ async function getConnection() {
         throw err;
     }
 }
-
 
 // --- ENDPOINTS DE LA API ---
 
@@ -54,20 +50,24 @@ app.get('/api/colaboradores', async (req, res) => {
     }
 });
 
-// 2. Obtener todas las asignaciones (Carga inicial del calendario)
+// 2. Obtener todas las asignaciones (CORREGIDO PARA EVITAR ERROR .SPLIT)
 app.get('/api/asignaciones', async (req, res) => {
     try {
         const pool = await getConnection();
-        //const result = await pool.request().query("SELECT usuario, fecha FROM HomeOffice.asignaciones");
-        const result = await pool.request().query(`SELECT usuario, CONVERT(VARCHAR(10), fecha, 120) as fecha FROM HomeOffice.asignaciones`);
+        // Convertimos la fecha a VARCHAR(10) directamente en SQL para que React reciba "YYYY-MM-DD"
+        const result = await pool.request().query(`
+            SELECT 
+                usuario, 
+                CONVERT(VARCHAR(10), fecha, 120) as fecha 
+            FROM HomeOffice.asignaciones
+        `);    
         res.json(result.recordset);
     } catch (err) {
         res.status(500).json({ error: "Error al cargar el calendario", details: err.message });
     }
 });
 
-
-// 3. Guardar nuevas asignaciones (Con regla del 50%)
+// 3. Guardar nuevas asignaciones
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     if (!usuario || !fechas || fechas.length === 0) {
@@ -75,25 +75,22 @@ app.post('/api/asignar', async (req, res) => {
     }
     try {
         const pool = await getConnection();
-        // Calcular el límite del 50% dinámicamente
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
-        const limite = Math.floor(totalRes.recordset[0].total * 0.5);
+        const limite = Math.floor(totalRes.recordset.total * 0.5);
+        
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
+        
         try {
             for (let fecha of fechas) {
-                // Validar cupo por cada día solicitado
                 const checkRes = await transaction.request()
                     .input('f', sql.Date, fecha)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
-                if (checkRes.recordset[0].ocupados >= limite) {
+                if (checkRes.recordset.ocupados >= limite) {
                     throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
                 }
 
-
-
-                // Insertar si no está ya asignado
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.Date, fecha)
@@ -108,11 +105,9 @@ app.post('/api/asignar', async (req, res) => {
             await transaction.rollback();
             res.status(400).json({ error: error.message });
         }
-
     } catch (err) {
         res.status(500).json({ error: "Error en el servidor de base de datos" });
     }
-
 });
 
 // 4. Eliminar asignación
@@ -122,26 +117,18 @@ app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
         const pool = await getConnection();
         const result = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fecha) // Asegúrate que sea sql.Date
+            .input('f', sql.Date, fecha)
             .query("DELETE FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f");
-       
 
-        // Esto es clave: te dice si realmente borró algo
         if (result.rowsAffected > 0) {
             res.json({ success: true, message: "Eliminado correctamente" });
         } else {
-            res.status(404).json({ success: false, message: "No se encontró el registro para eliminar" });
+            res.status(404).json({ success: false, message: "No se encontró el registro" });
         }
-
     } catch (err) {
-
-        console.error("Error en DELETE:", err.message);
         res.status(500).json({ error: "No se pudo eliminar el registro", details: err.message });
-
     }
-
 });
-
 
 
 // --- SERVIR FRONTEND (REACT) EN AZURE ---
