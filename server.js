@@ -67,27 +67,46 @@ app.get('/api/asignaciones', async (req, res) => {
     }
 });
 
+
 // 3. Guardar nuevas asignaciones
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     if (!usuario || !fechas || fechas.length === 0) {
         return res.status(400).json({ error: "Datos incompletos" });
     }
+
     try {
         const pool = await getConnection();
+
+        // --- 1. VALIDACIÓN: Solo un día de la semana por mes ---
+        const checkUser = await pool.request()
+            .input('u', sql.NVarChar, usuario)
+            .input('f', sql.Date, fechas)
+            .query(`
+                SELECT TOP 1 fecha FROM HomeOffice.asignaciones 
+                WHERE usuario = @u AND MONTH(fecha) = MONTH(@f) AND YEAR(fecha) = YEAR(@f)
+                AND DATEPART(dw, fecha) != DATEPART(dw, @f)
+            `);
+
+        if (checkUser.recordset.length > 0) {
+            return res.status(400).json({ error: "Ya tienes asignado un día diferente este mes." });
+        }
+
+        // --- 2. CÁLCULO DE LÍMITE (Corregido el acceso al recordset) ---
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
-        const limite = Math.floor(totalRes.recordset.total * 0.5);
+        const limite = Math.floor(totalRes.recordset.total * 0.5); // Agregado
         
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
         
         try {
             for (let fecha of fechas) {
+                // Verificar cupo por día (Corregido el acceso al recordset)
                 const checkRes = await transaction.request()
                     .input('f', sql.Date, fecha)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
-                if (checkRes.recordset.ocupados >= limite) {
+                if (checkRes.recordset.ocupados >= limite) { // Agregado
                     throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
                 }
 
@@ -96,17 +115,19 @@ app.post('/api/asignar', async (req, res) => {
                     .input('f', sql.Date, fecha)
                     .query(`
                         IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
-                        INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
+                        BEGIN
+                            INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
+                        END
                     `);
             }
             await transaction.commit();
             res.json({ success: true });
         } catch (error) {
-            await transaction.rollback();
+            if (transaction) await transaction.rollback();
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        res.status(500).json({ error: "Error en el servidor de base de datos" });
+        res.status(500).json({ error: "Error en el servidor: " + err.message });
     }
 });
 
