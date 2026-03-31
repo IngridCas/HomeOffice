@@ -68,7 +68,7 @@ app.get('/api/asignaciones', async (req, res) => {
 });
 
 
-// 3. Guardar nuevas asignaciones (VERSIÓN ORIGINAL CORREGIDA)
+// 3. Guardar nuevas asignaciones (VERSIÓN FUNCIONAL + VALIDACIÓN DE MES)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     
@@ -78,8 +78,29 @@ app.post('/api/asignar', async (req, res) => {
 
     try {
         const pool = await getConnection();
-        
-        // 1. Obtener total de colaboradores para el límite (Corregido con)
+
+        // --- NUEVA VALIDACIÓN: ¿Ya existe en este mes? ---
+        const fechaReferencia = new Date(fechas).toISOString().split('T');
+        const checkUserMonth = await pool.request()
+            .input('u', sql.NVarChar, usuario)
+            .input('f', sql.Date, fechaReferencia)
+            .query(`
+                SELECT TOP 1 fecha 
+                FROM HomeOffice.asignaciones 
+                WHERE usuario = @u 
+                AND MONTH(fecha) = MONTH(@f) 
+                AND YEAR(fecha) = YEAR(@f)
+            `);
+
+        if (checkUserMonth.recordset.length > 0) {
+            // Si encuentra aunque sea un registro, se detiene y avisa al usuario
+            return res.status(400).json({ 
+                error: `${usuario} ya tiene una asignación en este mes. Debes eliminarla para poder asignar un nuevo día.` 
+            });
+        }
+        // ------------------------------------------------
+
+        // 1. Obtener total de colaboradores para el límite
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor(totalRes.recordset.total * 0.5); 
         
@@ -88,10 +109,9 @@ app.post('/api/asignar', async (req, res) => {
         
         try {
             for (let fecha of fechas) {
-                // Limpiar la fecha para que SQL no de error de "Invalid Date"
                 const fechaLimpia = new Date(fecha).toISOString().split('T');
 
-                // 2. Verificar cupo (Corregido con)
+                // 2. Verificar cupo
                 const checkRes = await transaction.request()
                     .input('f', sql.Date, fechaLimpia)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
@@ -100,7 +120,7 @@ app.post('/api/asignar', async (req, res) => {
                     throw new Error(`El día ${fechaLimpia} ya alcanzó el límite del 50% (${limite} personas).`);
                 }
 
-                // 3. Insertar si no existe
+                // 3. Insertar
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.Date, fechaLimpia)
@@ -118,12 +138,10 @@ app.post('/api/asignar', async (req, res) => {
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        // Detalle del error para debugging
         console.error(err);
         res.status(500).json({ error: "Error en el servidor", details: err.message });
     }
 });
-
 // 4. Eliminar asignaciones (Borrado en cascada para todo el mes)
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
