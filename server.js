@@ -50,7 +50,7 @@ app.get('/api/colaboradores', async (req, res) => {
     }
 });
 
-// 2. Obtener todas las asignaciones (CORREGIDO PARA EVITAR ERROR .SPLIT)
+// 2. Obtener todas las asignaciones 
 app.get('/api/asignaciones', async (req, res) => {
     try {
         const pool = await getConnection();
@@ -69,43 +69,43 @@ app.get('/api/asignaciones', async (req, res) => {
 
 
 // 3. Guardar nuevas asignaciones
+// 3. Guardar nuevas asignaciones
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
 
     if (!usuario || !fechas || !Array.isArray(fechas) || fechas.length === 0) {
-        return res.status(400).json({ error: "Datos incompletos o formato de fecha incorrecto" });
+        return res.status(400).json({ error: "Datos incompletos o inválidos" });
     }
 
     try {
         const pool = await getConnection();
 
-        // --- 1. LIMPIEZA SEGURA DE FECHAS (Corregido) ---
+        // --- 1. LIMPIEZA DE FECHAS ---
         const fechasLimpias = fechas.map(f => {
-            // Aseguramos obtener solo YYYY-MM-DD
-            if (typeof f === 'string') return f.split('T');
-            return new Date(f).toISOString().split('T');
+            const d = new Date(f);
+            return d.toISOString().split('T'); // Esto garantiza formato YYYY-MM-DD
         });
 
-        // Tomamos SOLO LA PRIMERA fecha como referencia para la validación del mes
+        // IMPORTANTE: Definir fechaRef como un valor único, NO como el array completo
         const fechaRef = fechasLimpias; 
 
         // --- 2. VALIDACIÓN: Solo un día de la semana por mes ---
         const checkUser = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fechaRef) // Ahora es un string único, no un array
+            .input('f', sql.Date, fechaRef) 
             .query(`
                 SELECT TOP 1 fecha FROM HomeOffice.asignaciones 
                 WHERE usuario = @u 
-                AND MONTH(fecha) = MONTH(CAST(@f AS DATE)) 
-                AND YEAR(fecha) = YEAR(CAST(@f AS DATE))
-                AND DATEPART(dw, fecha) != DATEPART(dw, CAST(@f AS DATE))
+                AND MONTH(fecha) = MONTH(@f) 
+                AND YEAR(fecha) = YEAR(@f)
+                AND DATEPART(dw, fecha) != DATEPART(dw, @f)
             `);
 
         if (checkUser.recordset && checkUser.recordset.length > 0) {
             return res.status(400).json({ error: "Este colaborador ya tiene asignado un día diferente este mes." });
         }
 
-        // --- 3. CÁLCULO DE LÍMITE (Corregido acceso a .recordset) ---
+        // --- 3. CÁLCULO DE LÍMITE (Acceso corregido a recordset) ---
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor((totalRes.recordset.total || 20) * 0.5);
         
@@ -114,16 +114,15 @@ app.post('/api/asignar', async (req, res) => {
         
         try {
             for (let f of fechasLimpias) {
-                // Verificar cupo por cada fecha (Corregido acceso a .recordset)
+                // Verificar cupo (Acceso corregido a recordset)
                 const checkRes = await transaction.request()
                     .input('f', sql.Date, f)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
                 if (checkRes.recordset.ocupados >= limite) {
-                    throw new Error(`El límite de cupo (50%) se alcanzó para el día ${f}.`);
+                    throw new Error(`Cupo lleno para el día ${f}.`);
                 }
 
-                // Inserción final
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
                     .input('f', sql.Date, f)
@@ -141,7 +140,6 @@ app.post('/api/asignar', async (req, res) => {
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        console.error("Error en POST /api/asignar:", err);
         res.status(500).json({ error: "Error interno: " + err.message });
     }
 });
