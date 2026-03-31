@@ -73,22 +73,47 @@ app.post('/api/asignar', async (req, res) => {
     if (!usuario || !fechas || fechas.length === 0) {
         return res.status(400).json({ error: "Datos incompletos" });
     }
+
     try {
         const pool = await getConnection();
+        
+        // --- NUEVA VALIDACIÓN: ¿Ya tiene asignado OTRO día este mes? ---
+        // Tomamos la primera fecha para saber qué mes y año validar
+        const fechaReferencia = fechas;
+        const checkUserRes = await pool.request()
+            .input('u', sql.NVarChar, usuario)
+            .input('f', sql.Date, fechaReferencia)
+            .query(`
+                SELECT TOP 1 fecha 
+                FROM HomeOffice.asignaciones 
+                WHERE usuario = @u 
+                AND MONTH(fecha) = MONTH(@f) 
+                AND YEAR(fecha) = YEAR(@f)
+                AND DATEPART(dw, fecha) != DATEPART(dw, @f) -- Que no sea el mismo día que intenta guardar
+            `);
+
+        if (checkUserRes.recordset.length > 0) {
+            const fechaExistente = checkUserRes.recordset.fecha.toISOString().split('T');
+            return res.status(400).json({ 
+                error: `El usuario ya tiene una asignación el día ${fechaExistente}. Solo se permite un día por semana al mes.` 
+            });
+        }
+
+        // --- VALIDACIÓN DE CUPO (REGLA DEL 50%) ---
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor(totalRes.recordset.total * 0.5);
-        
+
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
-        
+
         try {
             for (let fecha of fechas) {
-                const checkRes = await transaction.request()
+                const checkCupo = await transaction.request()
                     .input('f', sql.Date, fecha)
                     .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
 
-                if (checkRes.recordset.ocupados >= limite) {
-                    throw new Error(`El día ${fecha} ya alcanzó el límite del 50% (${limite} personas).`);
+                if (checkCupo.recordset.ocupados >= limite) {
+                    throw new Error(`El día ${fecha} alcanzó el límite.`);
                 }
 
                 await transaction.request()
@@ -106,7 +131,7 @@ app.post('/api/asignar', async (req, res) => {
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        res.status(500).json({ error: "Error en el servidor de base de datos" });
+        res.status(500).json({ error: "Error en el servidor" });
     }
 });
 
