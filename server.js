@@ -68,8 +68,7 @@ app.get('/api/asignaciones', async (req, res) => {
 });
 
 
-
-// 3. Guardar nuevas asignaciones (VERSIÓN CORREGIDA CON VALIDACIÓN)
+// 3. Guardar nuevas asignaciones
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
     
@@ -80,12 +79,13 @@ app.post('/api/asignar', async (req, res) => {
     try {
         const pool = await getConnection();
 
-        // --- VALIDACIÓN DE MES (Formato corregido para evitar Error 500) ---
-        const fRef = new Date(fechas).toISOString().split('T');
+        // --- VALIDACIÓN DE MES (Segura contra "Invalid time value") ---
+        // Usamos la primera fecha tal cual viene del frontend
+        const fRef = fechas; 
         
         const checkUserMonth = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fRef)
+            .input('f', sql.VarChar, fRef) // Lo enviamos como texto para que SQL lo convierta
             .query(`
                 SELECT TOP 1 fecha 
                 FROM HomeOffice.asignaciones 
@@ -96,11 +96,11 @@ app.post('/api/asignar', async (req, res) => {
 
         if (checkUserMonth.recordset.length > 0) {
             return res.status(400).json({ 
-                error: `${usuario} ya tiene una asignación este mes. Borra la anterior para cambiar de día.` 
+                error: `${usuario} ya tiene una asignación este mes.` 
             });
         }
-        // -----------------------------------------------------------------
 
+        // --- LÓGICA DE GUARDADO QUE YA TE FUNCIONABA ---
         const totalRes = await pool.request().query("SELECT COUNT(*) as total FROM HomeOffice.colaboradores WHERE activo = 1");
         const limite = Math.floor(totalRes.recordset.total * 0.5); 
         
@@ -109,23 +109,24 @@ app.post('/api/asignar', async (req, res) => {
         
         try {
             for (let fecha of fechas) {
-                const fechaLimpia = new Date(fecha).toISOString().split('T');
+                // Verificamos que la fecha sea válida antes de usarla
+                if (!fecha) continue;
 
                 const checkRes = await transaction.request()
-                    .input('f', sql.Date, fechaLimpia)
-                    .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = @f");
+                    .input('f', sql.VarChar, fecha)
+                    .query("SELECT COUNT(*) as ocupados FROM HomeOffice.asignaciones WHERE fecha = CAST(@f AS DATE)");
 
                 if (checkRes.recordset.ocupados >= limite) {
-                    throw new Error(`Cupo lleno para el día ${fechaLimpia}.`);
+                    throw new Error(`Cupo lleno.`);
                 }
 
                 await transaction.request()
                     .input('u', sql.NVarChar, usuario)
-                    .input('f', sql.Date, fechaLimpia)
+                    .input('f', sql.VarChar, fecha)
                     .query(`
-                        IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
+                        IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = CAST(@f AS DATE))
                         BEGIN
-                            INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
+                            INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, CAST(@f AS DATE))
                         END
                     `);
             }
@@ -136,7 +137,6 @@ app.post('/api/asignar', async (req, res) => {
             res.status(400).json({ error: error.message });
         }
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: "Error en el servidor: " + err.message });
     }
 });
