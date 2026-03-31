@@ -114,17 +114,36 @@ const App = () => {
     }
   };
 
+ // --- ELIMINAR (Masivo por día de la semana) ---
   const removeAssign = async (day, userName) => {
     const fechaFormateada = format(day, 'yyyy-MM-dd');
+    const diaDeLaSemana = getDay(day); // Obtenemos qué día es (ej: 2 para Martes)
+    
+    if (!window.confirm(`¿Deseas eliminar a ${userName} de todos los ${format(day, 'eeee', { locale: es })} del mes?`)) {
+      return;
+    }
+
     try {
       const response = await fetch(`/api/asignar/${encodeURIComponent(userName)}/${fechaFormateada}`, {
         method: 'DELETE'
       });
+
       if (response.ok) {
-        setAppointments(prev => prev.filter(app => !(isSameDay(app.date, day) && app.user === userName)));
+        // Actualizamos el estado local: Filtramos para quitar al usuario 
+        // de todos los días que coincidan con el mismo día de la semana
+        setAppointments(prev => prev.filter(app => {
+          const coincideUsuario = app.user === userName;
+          const coincideDiaSemana = getDay(app.date) === diaDeLaSemana;
+          const coincideMes = isSameMonth(app.date, day);
+          
+          // Retenemos solo lo que NO coincide con el patrón borrado
+          return !(coincideUsuario && coincideDiaSemana && coincideMes);
+        }));
+      } else {
+        alert("Error al procesar la eliminación masiva.");
       }
     } catch (err) {
-      alert("Error al eliminar");
+      alert("Error de conexión al eliminar.");
     }
   };
 
