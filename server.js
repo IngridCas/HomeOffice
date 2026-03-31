@@ -110,23 +110,37 @@ app.post('/api/asignar', async (req, res) => {
     }
 });
 
-// 4. Eliminar asignación
+// 4. Eliminar asignaciones (Borrado en cascada para todo el mes)
 app.delete('/api/asignar/:usuario/:fecha', async (req, res) => {
     const { usuario, fecha } = req.params;
+    
     try {
         const pool = await getConnection();
+        
+        // Usamos una consulta que identifica el día de la semana (WEEKDAY) 
+        // y borra todas las fechas que coincidan con ese día en el mismo mes y año
+        const query = `
+            DELETE FROM HomeOffice.asignaciones 
+            WHERE usuario = @u 
+            AND DATEPART(dw, fecha) = DATEPART(dw, CAST(@f AS DATE))
+            AND MONTH(fecha) = MONTH(CAST(@f AS DATE))
+            AND YEAR(fecha) = YEAR(CAST(@f AS DATE))
+        `;
+
         const result = await pool.request()
             .input('u', sql.NVarChar, usuario)
             .input('f', sql.Date, fecha)
-            .query("DELETE FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f");
+            .query(query);
 
         if (result.rowsAffected > 0) {
-            res.json({ success: true, message: "Eliminado correctamente" });
+            res.json({ success: true, message: `Se eliminaron ${result.rowsAffected} registros.` });
         } else {
-            res.status(404).json({ success: false, message: "No se encontró el registro" });
+            res.status(404).json({ success: false, message: "No se encontraron registros para eliminar" });
         }
+
     } catch (err) {
-        res.status(500).json({ error: "No se pudo eliminar el registro", details: err.message });
+        console.error("Error en DELETE masivo:", err.message);
+        res.status(500).json({ error: "Error al eliminar el ciclo mensual", details: err.message });
     }
 });
 
