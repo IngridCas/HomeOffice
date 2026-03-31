@@ -51,40 +51,41 @@ app.get('/api/colaboradores', async (req, res) => {
 });
 
 // 2. Obtener todas las asignaciones (CORREGIDO PARA EVITAR ERROR .SPLIT)
+app.get('/api/asignaciones', async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request().query(`
+            SELECT usuario, CONVERT(VARCHAR(10), fecha, 120) as fecha 
+            FROM HomeOffice.asignaciones
+        `);
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3. Guardar (Con validación de un solo día)
 app.post('/api/asignar', async (req, res) => {
     const { usuario, fechas } = req.body;
-    if (!usuario || !fechas || fechas.length === 0) {
-        return res.status(400).json({ error: "Datos incompletos" });
-    }
-
-    let pool;
     try {
-        pool = await getConnection();
+        const pool = await poolPromise;
         
-        // 1. Validar si ya existe en OTRO día de la semana este mes
-        const fechaRef = fechas;
-        const checkUser = await pool.request()
+        // Validar si ya tiene OTRO día este mes
+        const check = await pool.request()
             .input('u', sql.NVarChar, usuario)
-            .input('f', sql.Date, fechaRef)
+            .input('f', sql.Date, fechas)
             .query(`
-                SELECT TOP 1 fecha 
-                FROM HomeOffice.asignaciones 
-                WHERE usuario = @u 
-                AND MONTH(fecha) = MONTH(@f) 
-                AND YEAR(fecha) = YEAR(@f)
+                SELECT TOP 1 fecha FROM HomeOffice.asignaciones 
+                WHERE usuario = @u AND MONTH(fecha) = MONTH(@f) AND YEAR(fecha) = YEAR(@f)
                 AND DATEPART(dw, fecha) != DATEPART(dw, @f)
             `);
 
-        if (checkUser.recordset.length > 0) {
-            return res.status(400).json({ 
-                error: `El colaborador ya está asignado a otro día de la semana este mes.` 
-            });
+        if (check.recordset.length > 0) {
+            return res.status(400).json({ error: "Ya tienes asignado un día diferente este mes." });
         }
 
-        // 2. Ejecutar inserción en transacción
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
-
         try {
             for (let f of fechas) {
                 await transaction.request()
@@ -92,24 +93,17 @@ app.post('/api/asignar', async (req, res) => {
                     .input('f', sql.Date, f)
                     .query(`
                         IF NOT EXISTS (SELECT 1 FROM HomeOffice.asignaciones WHERE usuario = @u AND fecha = @f)
-                        BEGIN
-                            INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
-                        END
+                        INSERT INTO HomeOffice.asignaciones (usuario, fecha) VALUES (@u, @f)
                     `);
             }
             await transaction.commit();
             res.json({ success: true });
-        } catch (transError) {
+        } catch (e) {
             await transaction.rollback();
-            throw transError; // Lanza al catch principal
+            throw e;
         }
-
     } catch (err) {
-        console.error("DETALLE DEL ERROR 500:", err.message);
-        res.status(500).json({ 
-            error: "Error interno en el servidor", 
-            message: err.message // Esto te dirá exactamente qué falló en el navegador
-        });
+        res.status(500).json({ error: err.message });
     }
 });
 
