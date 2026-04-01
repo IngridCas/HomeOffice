@@ -23,6 +23,13 @@ const App = () => {
     initialDate = addMonths(today, 1); // Mostrar siguiente mes si estamos a 5 días o menos
   }
 
+    // --- DETERMINAR EL MES A MOSTRAR ---
+  const endOfCurrentMonth = endOfMonth(currentDate);
+  const daysLeftInMonth = differenceInCalendarDays(endOfCurrentMonth, currentDate);
+  // Si quedan 5 días o menos, mostramos el mes siguiente
+  const displayDate = daysLeftInMonth <= 5 ? addMonths(currentDate, 1) : currentDate;
+
+
   const [currentDate] = useState(initialDate);
 
   const dynamicMaxCapacity = staffList.length > 0 ? Math.floor(staffList.length * 0.5) : 10;
@@ -135,7 +142,7 @@ const App = () => {
           <div style={{display:'flex',alignItems:'center',gap:'15px'}}>
             <Calendar color="#4f46e5" size={24}/>
             <div>
-              <h1 style={{margin:0,fontSize:'20px',fontWeight:'900'}}>{SETTINGS.areaName}- {format(currentDate, "MMMM", { locale: es })}</h1>
+              <h1 style={{margin:0,fontSize:'20px',fontWeight:'900'}}>{SETTINGS.areaName} - {format(displayDate,'MMMM yyyy', {locale: es})}</h1>
               <p style={{margin:0,fontSize:'12px',color:'#64748b'}}>Cupo: {SETTINGS.maxCapacity}</p>
             </div>
           </div>
