@@ -43,9 +43,11 @@ app.get('/api/areas', async (req, res) => {
   try {
     const pool = await getConnection();
     const result = await pool.request().query('SELECT DISTINCT area FROM colaboradores WHERE activo = 1');
-    const areas = result.recordset.map(r => r.area);
-    res.json(areas); // ['Operaciones', 'Marketing', ...]
+    console.log('Areas query result:', result.recordset);
+    const areas = Array.isArray(result.recordset) ? result.recordset.map(r => r.area).filter(Boolean) : [];
+    res.json(areas);
   } catch (err) {
+    console.error('Error en /api/areas:', err);
     res.status(500).json({ error: err.message });
   }
 });
