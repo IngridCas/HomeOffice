@@ -38,7 +38,17 @@ async function getConnection() {
 }
 
 // --- ENDPOINTS DE LA API ---
-
+// Obtener áreas únicas
+app.get('/api/areas', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    const result = await pool.request().query('SELECT DISTINCT area FROM colaboradores WHERE activo = 1');
+    const areas = result.recordset.map(r => r.area);
+    res.json(areas); // ['Operaciones', 'Marketing', ...]
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // 1. Obtener lista de colaboradores
 app.get('/api/colaboradores', async (req, res) => {
     try {
