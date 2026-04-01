@@ -55,8 +55,8 @@ app.get('/api/areas', async (req, res) => {
 app.get('/api/colaboradores', async (req, res) => {
     try {
         const pool = await getConnection();
-        const result = await pool.request().query("SELECT nombre FROM HomeOffice.colaboradores WHERE activo = 1 ORDER BY nombre");
-        res.json(result.recordset.map(r => r.nombre));
+        const result = await pool.request().query("SELECT nombre , area FROM HomeOffice.colaboradores WHERE activo = 1 ORDER BY nombre");
+        res.json(result.recordset.map(r => ({ nombre: r.nombre, area: r.area })));
     } catch (err) {
         res.status(500).json({ error: "No se pudo obtener la lista de staff", details: err.message });
     }
