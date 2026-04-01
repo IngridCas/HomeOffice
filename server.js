@@ -42,7 +42,7 @@ async function getConnection() {
 app.get('/api/areas', async (req, res) => {
   try {
     const pool = await getConnection();
-    const result = await pool.request().query('SELECT DISTINCT area FROM colaboradores WHERE activo = 1');
+    const result = await pool.request().query('SELECT DISTINCT area FROM HomeOffice.colaboradores WHERE activo = 1');
     console.log('Areas query result:', result.recordset);
     const areas = Array.isArray(result.recordset) ? result.recordset.map(r => r.area).filter(Boolean) : [];
     res.json(areas);
