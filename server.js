@@ -55,7 +55,7 @@ app.get('/api/areas', async (req, res) => {
 app.get('/api/colaboradores', async (req, res) => {
   try {
     const pool = await getConnection();
-    const result = await pool.request().query('SELECT nombre, area, activo FROM colaboradores WHERE activo = 1');
+    const result = await pool.request().query('SELECT usuario, area, activo FROM colaboradores WHERE activo = 1');
     res.json(result.recordset);
   } catch (error) {
     res.status(500).json({ error: error.message });
