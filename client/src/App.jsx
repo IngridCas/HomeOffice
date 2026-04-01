@@ -135,7 +135,7 @@ const App = () => {
           <div style={{display:'flex',alignItems:'center',gap:'15px'}}>
             <Calendar color="#4f46e5" size={24}/>
             <div>
-              <h1 style={{margin:0,fontSize:'20px',fontWeight:'900'}}>{SETTINGS.areaName}</h1>
+              <h1 style={{margin:0,fontSize:'20px',fontWeight:'900'}}>{SETTINGS.areaName}- {format(currentDate, "MMMM", { locale: es })}</h1>
               <p style={{margin:0,fontSize:'12px',color:'#64748b'}}>Cupo: {SETTINGS.maxCapacity}</p>
             </div>
           </div>
