@@ -13,16 +13,12 @@ const App = () => {
   const [selectedStaff, setSelectedStaff] = useState("");
   const [currentDate] = useState(new Date());
 
-  // 🔥 NUEVA VALIDACIÓN
-  const hoy = new Date();
-  const esPrimeraSemana = hoy.getDate() >= 1 && hoy.getDate() <= 7;
-
   const dynamicMaxCapacity = staffList.length > 0 ? Math.floor(staffList.length * 0.5) : 10;
 
   const SETTINGS = {
     areaName: "Planificación de Operaciones",
     maxCapacity: dynamicMaxCapacity, 
-    allowedDays:[2, 3, 4],
+    allowedDays:[2, 3, 4], // Mar, Mié, Jue
   };
 
   useEffect(() => {
@@ -185,7 +181,11 @@ const App = () => {
           {emptyDays.map((_, i) => <div key={`empty-${i}`} style={styles.dayBox(false, true, false)} />)}
           
           {businessDays.map((day, idx) => {
-            const isAllowed = SETTINGS.allowedDays.includes(getDay(day));
+            const esPrimeraSemana = day.getDate() <= 7;
+            const esDiaPermitido = SETTINGS.allowedDays.includes(getDay(day));
+            const puedeEditar = esPrimeraSemana && esDiaPermitido;
+
+            const isAllowed = esDiaPermitido;
             const dayApps = appointments.filter(app => isSameDay(app.date, day));
             const isFull = dayApps.length >= SETTINGS.maxCapacity;
 
@@ -194,8 +194,7 @@ const App = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontWeight: '900', fontSize: '18px' }}>{format(day, 'd')}</span>
 
-                  {/* ✅ BOTÓN AGREGAR SOLO PRIMERA SEMANA */}
-                  {isAllowed && esPrimeraSemana && (
+                  {puedeEditar && (
                     <button 
                       onClick={() => handleAssign(day)} 
                       disabled={isFull}
@@ -216,8 +215,7 @@ const App = () => {
                     <div key={i} style={styles.badge}>
                       <span>{app.user}</span>
 
-                      {/* ✅ BOTÓN ELIMINAR SOLO PRIMERA SEMANA */}
-                      {esPrimeraSemana && (
+                      {puedeEditar && (
                         <Trash2 
                           size={14} 
                           onClick={() => removeAssign(day, app.user)} 
