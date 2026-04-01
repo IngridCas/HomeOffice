@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   format, startOfMonth, endOfMonth, eachDayOfInterval, 
-  getDay, isSameDay, endOfWeek, isSameMonth
+  getDay, isSameDay, endOfWeek, isSameMonth, addMonths, getDate 
 } from 'date-fns';
 import es from 'date-fns/locale/es';
 import { Trash2, UserPlus, Calendar, AlertCircle } from 'lucide-react';
@@ -13,12 +13,22 @@ const App = () => {
   const [selectedStaff, setSelectedStaff] = useState("");
   const [areas, setAreas] = useState([]);
   const [selectedArea, setSelectedArea] = useState("");
-  const [currentDate] = useState(new Date());
+
+  // --- FECHA ACTUAL CON LÓGICA DE AVANCE AUTOMÁTICO ---
+  const today = new Date();
+  const lastDayOfMonth = endOfMonth(today).getDate();
+  let initialDate = today;
+
+  if (lastDayOfMonth - getDate(today) < 5) {
+    initialDate = addMonths(today, 1); // Mostrar siguiente mes si estamos a 5 días o menos
+  }
+
+  const [currentDate] = useState(initialDate);
 
   const dynamicMaxCapacity = staffList.length > 0 ? Math.floor(staffList.length * 0.5) : 10;
 
   const SETTINGS = {
-    areaName: "Planificación de Operaciones",
+    areaName: "Planificación HomeOffice",
     maxCapacity: dynamicMaxCapacity, 
     allowedDays:[2, 3, 4], // Mar, Mié, Jue
   };
@@ -40,7 +50,9 @@ const App = () => {
         setAreas(areasData);
 
         const correctedApps = appsData.map(a => {
-          let fechaLimpia = typeof a.fecha === 'string' ? (a.fecha.includes('T') ? a.fecha.split('T')[0] : a.fecha) : a.fecha.toISOString().split('T')[0];
+          let fechaLimpia = typeof a.fecha === 'string' 
+            ? (a.fecha.includes('T') ? a.fecha.split('T')[0] : a.fecha) 
+            : a.fecha.toISOString().split('T')[0];
           const [year, month, day] = fechaLimpia.split('-').map(Number);
           return { ...a, date: new Date(year, month-1, day), user: a.usuario };
         }).filter(Boolean);
@@ -103,13 +115,13 @@ const App = () => {
     header:{padding:'25px 35px',borderBottom:'2px solid #f1f5f9',display:'flex',justifyContent:'space-between',alignItems:'center'},
     grid:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'15px',padding:'25px'},
     dayLabel:{textAlign:'center',fontSize:'11px',fontWeight:'900',color:'#94a3b8',textTransform:'uppercase',marginBottom:'10px'},
-    dayBox:(isAllowed,isEmpty,isFull)=>({
+    dayBox:(isAllowed,isEmpty,isFull)=>(({
       minHeight:'160px',
       backgroundColor:isEmpty?'transparent':(isAllowed?(isFull?'#fff1f2':'white'):'#f8fafc'),
       borderRadius:'20px',
       border:isEmpty?'none':(isAllowed?`2px solid ${isFull?'#fda4af':'#4f46e5'}`:'1px solid #e2e8f0'),
       padding:'16px', display:'flex', flexDirection:'column'
-    }),
+    })),
     badge:{display:'flex',justifyContent:'space-between',alignItems:'center',backgroundColor:'white',border:'1px solid #e2e8f0',padding:'6px 10px',borderRadius:'8px',marginBottom:'6px',fontSize:'11px',fontWeight:'700'},
     limitWarning:{color:'#e11d48',fontSize:'9px',fontWeight:'800',display:'flex',alignItems:'center',gap:'4px',marginTop:'4px'}
   };
@@ -129,13 +141,11 @@ const App = () => {
           </div>
           
           <div style={{display:'flex',gap:'10px'}}>
-            {/* Select Área */}
             <select value={selectedArea} onChange={e=>{setSelectedArea(e.target.value); setSelectedStaff("");}} style={{padding:'10px',borderRadius:'12px'}}>
               <option value="">Seleccionar Área...</option>
               {areas.map(a=><option key={a} value={a}>{a}</option>)}
             </select>
 
-            {/* Select Colaborador */}
             <select value={selectedStaff} onChange={e=>setSelectedStaff(e.target.value)} style={{padding:'10px',borderRadius:'12px'}}>
               <option value="">Seleccionar Colaborador...</option>
               {staffList.filter(s=>!selectedArea||s.area===selectedArea).map(n=><option key={n.usuario} value={n.usuario}>{n.usuario}</option>)}
@@ -148,7 +158,7 @@ const App = () => {
           {emptyDays.map((_,i)=><div key={`empty-${i}`} style={styles.dayBox(false,true,false)}/>)}
 
           {businessDays.map((day,idx)=>{
-            const esPrimeraSemana = day.getDate()<=7;
+            const esPrimeraSemana = day.getDate() <= 7;
             const esDiaPermitido = SETTINGS.allowedDays.includes(getDay(day));
             const puedeEditar = esPrimeraSemana && esDiaPermitido;
 
