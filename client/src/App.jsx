@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   format, startOfMonth, endOfMonth, eachDayOfInterval, 
-  getDay, isSameDay, endOfWeek, isSameMonth, addMonths, getDate 
+  getDay, isSameDay, endOfWeek, isSameMonth, addMonths, getDate, differenceInCalendarDays 
 } from 'date-fns';
 import es from 'date-fns/locale/es';
 import { Trash2, UserPlus, Calendar, AlertCircle } from 'lucide-react';
@@ -23,14 +23,13 @@ const App = () => {
     initialDate = addMonths(today, 1); // Mostrar siguiente mes si estamos a 5 días o menos
   }
 
-    // --- DETERMINAR EL MES A MOSTRAR ---
+  const [currentDate] = useState(initialDate);
+
+  // --- DETERMINAR EL MES A MOSTRAR ---
   const endOfCurrentMonth = endOfMonth(currentDate);
   const daysLeftInMonth = differenceInCalendarDays(endOfCurrentMonth, currentDate);
   // Si quedan 5 días o menos, mostramos el mes siguiente
   const displayDate = daysLeftInMonth <= 5 ? addMonths(currentDate, 1) : currentDate;
-
-
-  const [currentDate] = useState(initialDate);
 
   const dynamicMaxCapacity = staffList.length > 0 ? Math.floor(staffList.length * 0.5) : 10;
 
