@@ -17,19 +17,10 @@ const App = () => {
   // --- FECHA ACTUAL CON LÓGICA DE AVANCE AUTOMÁTICO ---
   const today = new Date();
   const lastDayOfMonth = endOfMonth(today).getDate();
-  let initialDate = today;
-
-  if (lastDayOfMonth - getDate(today) < 5) {
-    initialDate = addMonths(today, 1); // Mostrar siguiente mes si estamos a 5 días o menos
-  }
+  const initialDate = lastDayOfMonth - getDate(today) < 5 ? addMonths(today, 1) : today;
 
   const [currentDate] = useState(initialDate);
-
-  // --- DETERMINAR EL MES A MOSTRAR ---
-  const endOfCurrentMonth = endOfMonth(currentDate);
-  const daysLeftInMonth = differenceInCalendarDays(endOfCurrentMonth, currentDate);
-  // Si quedan 5 días o menos, mostramos el mes siguiente
-  const displayDate = daysLeftInMonth <= 5 ? addMonths(currentDate, 1) : currentDate;
+  const displayDate = currentDate;
 
   const dynamicMaxCapacity = staffList.length > 0 ? Math.floor(staffList.length * 0.5) : 10;
 
